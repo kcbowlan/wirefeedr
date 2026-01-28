@@ -8,6 +8,9 @@ from datetime import datetime
 from typing import Optional
 from urllib.parse import urlparse
 import io
+import math
+import sys
+import os
 
 from storage import Storage
 from feeds import FeedManager
@@ -17,10 +20,39 @@ from config import BIAS_COLORS, FACTUAL_COLORS, DARK_THEME
 
 class NewsAggregatorApp:
     def __init__(self, root: tk.Tk):
-        self.root = root
-        self.root.title("Personal News Aggregator")
+        # Windows: set DPI awareness (crisp icons/text) and AppUserModelID (custom taskbar icon)
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.shcore.SetProcessDpiAwareness(1)  # PROCESS_SYSTEM_DPI_AWARE
+            except Exception:
+                try:
+                    import ctypes
+                    ctypes.windll.user32.SetProcessDPIAware()
+                except Exception:
+                    pass
+            try:
+                import ctypes
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("wirefeedr.app.1")
+            except Exception:
+                pass
+
+        # Hidden owner provides taskbar presence + icon
+        self._owner = root
+        self._owner.title("WIREFEEDR")
+        self._setup_owner_icon()
+        self._owner.attributes("-alpha", 0)
+        self._owner.geometry("1x1+-10000+-10000")
+
+        # Real visible window as borderless Toplevel
+        self.root = tk.Toplevel(self._owner)
+        self.root.overrideredirect(True)
+        self.root.title("WIREFEEDR")
         self.root.geometry("1200x700")
         self.root.minsize(900, 500)
+
+        # Restore from taskbar click on hidden owner
+        self._owner.bind("<Map>", self._on_taskbar_restore)
 
         # Initialize components
         self.storage = Storage()
@@ -46,14 +78,36 @@ class NewsAggregatorApp:
         self.ticker_animation_id = None
         self.ticker_speed = 2
         self._ticker_resize_job = None
+        self._ticker_running = False
+
+        # Animation state
+        self._anim_frame = 0
+        self._anim_id = None
+        self._neon_panels = []
+        self._is_maximized = False
+        self._normal_geometry = ""
+        self._drag_x = 0
+        self._drag_y = 0
 
         # Build UI
         self._setup_styles()
-        self._build_menu()
+        self._build_title_bar()
+        self._build_menus()
+        self._bind_shortcuts()
         self._build_toolbar()
         self._build_ticker()
         self._build_main_layout()
         self._build_status_bar()
+        self._build_resize_grip()
+        # Corner decorations removed — overlapped with content
+
+        # Register neon panels for pulsing
+        # (widget, color_key, cycle_period_in_frames) — different speeds per panel
+        self._neon_panels = [
+            (self.feeds_frame, "cyan", 90),       # ~3s cycle
+            (self.articles_frame, "cyan", 120),    # ~4s cycle
+            (self.preview_frame, "magenta", 150),  # ~5s cycle
+        ]
 
         # Load initial data
         self.refresh_feeds_list()
@@ -64,6 +118,9 @@ class NewsAggregatorApp:
 
         # Bind window close
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # Boot sequence (starts animation loop when complete)
+        self._play_boot_sequence()
 
     def _setup_styles(self):
         """Configure ttk styles with dark cyberpunk theme."""
@@ -156,43 +213,153 @@ class NewsAggregatorApp:
         self.root.option_add("*TCombobox*Listbox.selectBackground", t["magenta"])
         self.root.option_add("*TCombobox*Listbox.selectForeground", t["fg_highlight"])
 
-    def _build_menu(self):
-        """Build the menu bar."""
+    def _build_title_bar(self):
+        """Build custom cyberpunk title bar with branding and menus."""
+        t = DARK_THEME
+
+        # Title bar frame - 32px tall
+        self.title_bar = tk.Frame(self.root, bg=t["bg_secondary"], height=32)
+        self.title_bar.pack(side=tk.TOP, fill=tk.X)
+        self.title_bar.pack_propagate(False)
+
+        # Left side: Logo + branding
+        logo_frame = tk.Frame(self.title_bar, bg=t["bg_secondary"])
+        logo_frame.pack(side=tk.LEFT, padx=(8, 0))
+
+        # Load LOGO.png
+        try:
+            logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "LOGO.png")
+            self._logo_image = tk.PhotoImage(file=logo_path)
+            w, h = self._logo_image.width(), self._logo_image.height()
+            if h > 24:
+                factor = max(1, h // 24)
+                self._logo_image = self._logo_image.subsample(factor, factor)
+            logo_label = tk.Label(logo_frame, image=self._logo_image, bg=t["bg_secondary"])
+            logo_label.pack(side=tk.LEFT, padx=(0, 6))
+            logo_label.bind("<Button-1>", self._start_drag)
+            logo_label.bind("<B1-Motion>", self._do_drag)
+        except Exception:
+            pass
+
+        # App title with neon glow effect
+        self.title_label = tk.Label(
+            logo_frame, text="WIREFEEDR",
+            bg=t["bg_secondary"], fg=t["cyan"],
+            font=("Consolas", 14, "bold")
+        )
+        self.title_label.pack(side=tk.LEFT)
+
+        # Version subtitle
+        tk.Label(
+            logo_frame, text="v1.8",
+            bg=t["bg_secondary"], fg=t["fg_secondary"],
+            font=("Consolas", 8)
+        ).pack(side=tk.LEFT, padx=(4, 0), pady=(6, 0))
+
+        # Right side: Window control buttons
+        ctrl_frame = tk.Frame(self.title_bar, bg=t["bg_secondary"])
+        ctrl_frame.pack(side=tk.RIGHT)
+
+        btn_style = dict(
+            bg=t["bg_secondary"], fg=t["fg"],
+            font=("Segoe UI Symbol", 11), bd=0, padx=14, pady=2,
+            activebackground=t["bg_tertiary"], activeforeground=t["fg_highlight"]
+        )
+
+        # Minimize  (U+2012 figure dash - thin horizontal line)
+        min_btn = tk.Button(ctrl_frame, text="\u2012", command=self._minimize_window, **btn_style)
+        min_btn.pack(side=tk.LEFT)
+        min_btn.bind("<Enter>", lambda e: e.widget.configure(bg=t["cyan_dim"], fg=t["cyan"]))
+        min_btn.bind("<Leave>", lambda e: e.widget.configure(bg=t["bg_secondary"], fg=t["fg"]))
+
+        # Maximize/Restore (U+25FB white medium square)
+        self.max_btn = tk.Button(ctrl_frame, text="\u25fb", command=self._toggle_maximize, **btn_style)
+        self.max_btn.pack(side=tk.LEFT)
+        self.max_btn.bind("<Enter>", lambda e: e.widget.configure(bg=t["cyan_dim"], fg=t["cyan"]))
+        self.max_btn.bind("<Leave>", lambda e: e.widget.configure(bg=t["bg_secondary"], fg=t["fg"]))
+
+        # Close (U+2715 multiplication x)
+        close_btn = tk.Button(ctrl_frame, text="\u2715", command=self._on_close, **btn_style)
+        close_btn.pack(side=tk.LEFT)
+        close_btn.bind("<Enter>", lambda e: e.widget.configure(bg="#cc0000", fg="#ffffff"))
+        close_btn.bind("<Leave>", lambda e: e.widget.configure(bg=t["bg_secondary"], fg=t["fg"]))
+
+        # Menu buttons in title bar
+        menu_frame = tk.Frame(self.title_bar, bg=t["bg_secondary"])
+        menu_frame.pack(side=tk.LEFT, padx=(20, 0))
+
+        menu_items = [
+            ("FILE", self._show_file_menu),
+            ("FEEDS", self._show_feeds_menu),
+            ("ARTICLES", self._show_articles_menu),
+            ("SETTINGS", self._show_settings_menu),
+        ]
+
+        for label, cmd in menu_items:
+            btn = tk.Label(
+                menu_frame, text=label,
+                bg=t["bg_secondary"], fg=t["fg_secondary"],
+                font=("Consolas", 9), padx=10, pady=6, cursor="hand2"
+            )
+            btn.pack(side=tk.LEFT)
+            btn.bind("<Button-1>", lambda e, c=cmd: c(e))
+            btn.bind("<Enter>", lambda e: e.widget.configure(fg=t["cyan"]))
+            btn.bind("<Leave>", lambda e: e.widget.configure(fg=t["fg_secondary"]))
+
+        # Drag handling on title bar
+        for widget in [self.title_bar, self.title_label, logo_frame]:
+            widget.bind("<Button-1>", self._start_drag)
+            widget.bind("<B1-Motion>", self._do_drag)
+            widget.bind("<Double-1>", lambda e: self._toggle_maximize())
+
+        # Neon line under title bar
+        self.title_neon_line = tk.Canvas(
+            self.root, height=2, bg=DARK_THEME["bg"], highlightthickness=0
+        )
+        self.title_neon_line.pack(side=tk.TOP, fill=tk.X)
+
+    def _build_menus(self):
+        """Pre-build popup menus for the custom title bar."""
         _m = dict(bg=DARK_THEME["bg_secondary"], fg=DARK_THEME["fg"],
-                  activebackground=DARK_THEME["magenta"], activeforeground=DARK_THEME["fg_highlight"])
-        menubar = tk.Menu(self.root, **_m)
-        self.root.config(menu=menubar)
+                  activebackground=DARK_THEME["magenta"],
+                  activeforeground=DARK_THEME["fg_highlight"], tearoff=0)
 
-        # File menu
-        file_menu = tk.Menu(menubar, tearoff=0, **_m)
-        menubar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="Refresh All Feeds", command=self.fetch_all_feeds,
-                              accelerator="F5")
-        file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self._on_close)
+        self._file_menu = tk.Menu(self.root, **_m)
+        self._file_menu.add_command(label="Refresh All Feeds", command=self.fetch_all_feeds, accelerator="F5")
+        self._file_menu.add_separator()
+        self._file_menu.add_command(label="Exit", command=self._on_close)
 
-        # Feeds menu
-        feeds_menu = tk.Menu(menubar, tearoff=0, **_m)
-        menubar.add_cascade(label="Feeds", menu=feeds_menu)
-        feeds_menu.add_command(label="Add Feed...", command=self.show_add_feed_dialog)
-        feeds_menu.add_command(label="Manage Feeds...", command=self.show_manage_feeds_dialog)
+        self._feeds_menu = tk.Menu(self.root, **_m)
+        self._feeds_menu.add_command(label="Add Feed...", command=self.show_add_feed_dialog)
+        self._feeds_menu.add_command(label="Manage Feeds...", command=self.show_manage_feeds_dialog)
 
-        # Articles menu
-        articles_menu = tk.Menu(menubar, tearoff=0, **_m)
-        menubar.add_cascade(label="Articles", menu=articles_menu)
-        articles_menu.add_command(label="Mark All as Read", command=self.mark_all_read)
-        articles_menu.add_separator()
-        articles_menu.add_command(label="Delete Old Articles...", command=self.show_delete_old_dialog)
+        self._articles_menu = tk.Menu(self.root, **_m)
+        self._articles_menu.add_command(label="Mark All as Read", command=self.mark_all_read)
+        self._articles_menu.add_separator()
+        self._articles_menu.add_command(label="Delete Old Articles...", command=self.show_delete_old_dialog)
 
-        # Settings menu
-        settings_menu = tk.Menu(menubar, tearoff=0, **_m)
-        menubar.add_cascade(label="Settings", menu=settings_menu)
-        settings_menu.add_command(label="Filter Keywords...", command=self.show_filter_keywords_dialog)
+        self._settings_menu = tk.Menu(self.root, **_m)
+        self._settings_menu.add_command(label="Filter Keywords...", command=self.show_filter_keywords_dialog)
 
-        # Bind keyboard shortcuts
+    def _show_file_menu(self, event):
+        self._file_menu.tk_popup(event.widget.winfo_rootx(),
+                                  event.widget.winfo_rooty() + event.widget.winfo_height())
+
+    def _show_feeds_menu(self, event):
+        self._feeds_menu.tk_popup(event.widget.winfo_rootx(),
+                                   event.widget.winfo_rooty() + event.widget.winfo_height())
+
+    def _show_articles_menu(self, event):
+        self._articles_menu.tk_popup(event.widget.winfo_rootx(),
+                                      event.widget.winfo_rooty() + event.widget.winfo_height())
+
+    def _show_settings_menu(self, event):
+        self._settings_menu.tk_popup(event.widget.winfo_rootx(),
+                                      event.widget.winfo_rooty() + event.widget.winfo_height())
+
+    def _bind_shortcuts(self):
+        """Bind keyboard shortcuts."""
         self.root.bind("<F5>", lambda e: self.fetch_all_feeds())
-
-        # Article navigation shortcuts
         self.root.bind("<Up>", self._on_key_up)
         self.root.bind("<Down>", self._on_key_down)
         self.root.bind("<Return>", lambda e: self.open_in_browser())
@@ -369,29 +536,23 @@ class NewsAggregatorApp:
 
         self._start_ticker_animation()
 
-    def _ticker_animate(self):
-        """Move all ticker items left by speed pixels."""
+    def _ticker_step(self):
+        """Move ticker items left by speed pixels. Called by master animation loop."""
         if not self.ticker_paused and self.ticker_total_width > 0:
             self.ticker_canvas.move("ticker_text", -self.ticker_speed, 0)
             self.ticker_offset += self.ticker_speed
 
             if self.ticker_offset >= self.ticker_total_width:
-                # Reset: shift everything back by one full copy width
                 self.ticker_canvas.move("ticker_text", self.ticker_total_width, 0)
                 self.ticker_offset -= self.ticker_total_width
 
-        self.ticker_animation_id = self.root.after(33, self._ticker_animate)  # ~30fps
-
     def _start_ticker_animation(self):
-        """Start the ticker animation loop."""
-        self._stop_ticker_animation()
-        self.ticker_animation_id = self.root.after(33, self._ticker_animate)
+        """Flag ticker as running (driven by master animation loop)."""
+        self._ticker_running = True
 
     def _stop_ticker_animation(self):
-        """Cancel the ticker animation loop."""
-        if self.ticker_animation_id:
-            self.root.after_cancel(self.ticker_animation_id)
-            self.ticker_animation_id = None
+        """Flag ticker as stopped."""
+        self._ticker_running = False
 
     def _on_ticker_click(self, event):
         """Handle single click on ticker — select article in treeview."""
@@ -454,7 +615,16 @@ class NewsAggregatorApp:
 
     def _build_feeds_panel(self):
         """Build the feeds list panel."""
-        feeds_frame = ttk.LabelFrame(self.main_paned, text="Feeds", padding=5)
+        self.feeds_frame = tk.LabelFrame(
+            self.main_paned, text=" FEEDS ",
+            bg=DARK_THEME["bg"], fg=DARK_THEME["cyan"],
+            font=("Consolas", 10, "bold"),
+            highlightbackground=DARK_THEME["cyan_dim"],
+            highlightcolor=DARK_THEME["cyan"],
+            highlightthickness=2, bd=0, relief=tk.FLAT,
+            padx=5, pady=5
+        )
+        feeds_frame = self.feeds_frame
         self.main_paned.add(feeds_frame, weight=1)
 
         # Feeds treeview
@@ -474,7 +644,16 @@ class NewsAggregatorApp:
         self.main_paned.add(right_paned, weight=4)
 
         # Articles list
-        articles_frame = ttk.LabelFrame(right_paned, text="Articles", padding=5)
+        self.articles_frame = tk.LabelFrame(
+            right_paned, text=" ARTICLES ",
+            bg=DARK_THEME["bg"], fg=DARK_THEME["cyan"],
+            font=("Consolas", 10, "bold"),
+            highlightbackground=DARK_THEME["cyan_dim"],
+            highlightcolor=DARK_THEME["cyan"],
+            highlightthickness=2, bd=0, relief=tk.FLAT,
+            padx=5, pady=5
+        )
+        articles_frame = self.articles_frame
         right_paned.add(articles_frame, weight=2)
 
         # Articles treeview with columns
@@ -511,7 +690,16 @@ class NewsAggregatorApp:
         self.articles_tree.tag_configure("read", foreground=DARK_THEME["fg_secondary"])
 
         # Preview panel
-        preview_frame = ttk.LabelFrame(right_paned, text="Preview", padding=5)
+        self.preview_frame = tk.LabelFrame(
+            right_paned, text=" PREVIEW ",
+            bg=DARK_THEME["bg"], fg=DARK_THEME["magenta"],
+            font=("Consolas", 10, "bold"),
+            highlightbackground=DARK_THEME["magenta_dim"],
+            highlightcolor=DARK_THEME["magenta"],
+            highlightthickness=2, bd=0, relief=tk.FLAT,
+            padx=5, pady=5
+        )
+        preview_frame = self.preview_frame
         right_paned.add(preview_frame, weight=1)
 
         # Preview header
@@ -578,9 +766,35 @@ class NewsAggregatorApp:
         self.preview_text.configure(yscrollcommand=preview_text_scroll.set)
 
     def _build_status_bar(self):
-        """Build the status bar."""
-        self.status_bar = ttk.Label(self.root, text="Ready", anchor=tk.W, padding=(5, 2))
-        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        """Build the cyberpunk status bar."""
+        t = DARK_THEME
+        status_frame = tk.Frame(self.root, bg=t["status_bg"], height=24)
+        status_frame.pack(side=tk.BOTTOM, fill=tk.X)
+        status_frame.pack_propagate(False)
+
+        # Left: status text
+        self.status_bar = tk.Label(
+            status_frame, text=">> READY", anchor=tk.W,
+            bg=t["status_bg"], fg=t["cyan"],
+            font=("Consolas", 9), padx=8
+        )
+        self.status_bar.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # Right: blinking cursor block
+        self._cursor_label = tk.Label(
+            status_frame, text="\u2588",
+            bg=t["status_bg"], fg=t["cyan"],
+            font=("Consolas", 9)
+        )
+        self._cursor_label.pack(side=tk.RIGHT, padx=(0, 8))
+
+        # Right: clock
+        self._clock_label = tk.Label(
+            status_frame, text="",
+            bg=t["status_bg"], fg=t["fg_secondary"],
+            font=("Consolas", 9), padx=8
+        )
+        self._clock_label.pack(side=tk.RIGHT)
 
     # Feed operations
     def _get_favicon_domain(self, feed_url: str) -> str:
@@ -1301,25 +1515,25 @@ class NewsAggregatorApp:
         # Bold for first sentence (lede)
         self.preview_text.tag_configure("lede", font=("TkDefaultFont", 9, "bold"))
 
-        # Entity categories (clickable Wikipedia links)
+        # Entity categories (clickable Wikipedia links) — bright for dark bg
         self.highlight_categories = {
-            "people": "#008b8b",      # Cyan
-            "titles": "#8b008b",      # Purple
-            "government": "#6a5acd",  # Slate Blue
-            "military": "#4682b4",    # Steel Blue
-            "organizations": "#228b22", # Green
-            "countries": "#cc7000",   # Orange
-            "places": "#a0522d",      # Sienna
-            "events": "#b8860b",      # Goldenrod
+            "people": "#00e5e5",      # Bright Cyan
+            "titles": "#da70d6",      # Orchid
+            "government": "#9d8bff",  # Bright Lavender
+            "military": "#6cb4e6",    # Light Steel Blue
+            "organizations": "#50e650", # Bright Green
+            "countries": "#ff9d3a",   # Bright Orange
+            "places": "#e08850",      # Light Sienna
+            "events": "#f0c050",      # Bright Goldenrod
         }
 
-        # Number categories (not clickable)
+        # Number categories (not clickable) — bright for dark bg
         self.number_categories = {
-            "money": "#c71585",       # Magenta
-            "statistics": "#ff69b4",  # Hot Pink
-            "dates": "#e75480",       # Rose
-            "verbs": "#d2956b",       # Muted Coral
-            "numbers": "#e6c300",     # Yellow
+            "money": "#ff50a0",       # Bright Pink
+            "statistics": "#ff88cc",  # Bright Hot Pink
+            "dates": "#ff7098",       # Bright Rose
+            "verbs": "#e8a878",       # Light Coral
+            "numbers": "#ffe040",     # Bright Yellow
         }
 
         # Configure tags for entities (clickable)
@@ -2199,7 +2413,7 @@ class NewsAggregatorApp:
 
     def _update_status(self, message: str):
         """Update the status bar."""
-        self.status_bar.configure(text=message)
+        self.status_bar.configure(text=f">> {message.upper()}")
 
     def _on_key_up(self, event):
         """Handle Up arrow key - select previous article."""
@@ -2257,11 +2471,257 @@ class NewsAggregatorApp:
             self._hide_article(self.selected_article_id)
         return "break"
 
+    # ── Borderless window methods ──────────────────────────────────
+
+    def _setup_owner_icon(self):
+        """Set the taskbar icon on the hidden owner window."""
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            ico_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "icon.ico")
+            # Generate crisp icon: bold cyan W with magenta shadow on dark bg
+            ico_sizes = [256, 64, 48, 32, 24, 16]
+            frames = []
+            for s in ico_sizes:
+                img = Image.new("RGBA", (s, s), (5, 5, 10, 255))
+                draw = ImageDraw.Draw(img)
+                bw = max(1, s // 64)
+                draw.rectangle([0, 0, s - 1, s - 1], outline=(0, 255, 255, 255), width=bw)
+                font_size = int(s * 0.7)
+                try:
+                    font = ImageFont.truetype("consola.ttf", font_size)
+                except Exception:
+                    font = ImageFont.load_default()
+                bbox = draw.textbbox((0, 0), "W", font=font)
+                tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                x = (s - tw) // 2
+                y = (s - th) // 2 - bbox[1]
+                off = max(1, s // 64)
+                draw.text((x + off, y + off), "W", fill=(255, 0, 255, 180), font=font)
+                draw.text((x, y), "W", fill=(0, 255, 255, 255), font=font)
+                frames.append(img)
+            frames[0].save(ico_path, format="ICO", append_images=frames[1:])
+            self._owner.iconbitmap(ico_path)
+        except Exception:
+            pass
+
+    def _on_taskbar_restore(self, event=None):
+        """Restore window when taskbar icon is clicked."""
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+
+    def _start_drag(self, event):
+        """Record drag start position."""
+        self._drag_x = event.x_root - self.root.winfo_x()
+        self._drag_y = event.y_root - self.root.winfo_y()
+
+    def _do_drag(self, event):
+        """Move window during drag."""
+        if self._is_maximized:
+            self._toggle_maximize()
+        x = event.x_root - self._drag_x
+        y = event.y_root - self._drag_y
+        self.root.geometry(f"+{x}+{y}")
+
+    def _minimize_window(self):
+        """Minimize to taskbar."""
+        self.root.withdraw()
+        self._owner.iconify()
+
+    def _toggle_maximize(self):
+        """Toggle between maximized and normal size."""
+        if self._is_maximized:
+            self.root.geometry(self._normal_geometry)
+            self.max_btn.configure(text="\u25fb")
+            self._is_maximized = False
+        else:
+            self._normal_geometry = self.root.geometry()
+            sw = self.root.winfo_screenwidth()
+            sh = self.root.winfo_screenheight()
+            self.root.geometry(f"{sw}x{sh - 40}+0+0")
+            self.max_btn.configure(text="\u25a3")
+            self._is_maximized = True
+
+    def _build_resize_grip(self):
+        """Add resize grip to bottom-right corner."""
+        self._grip = tk.Label(
+            self.root, text="\u2921",
+            bg=DARK_THEME["bg"], fg=DARK_THEME["cyan_dim"],
+            font=("Consolas", 10), cursor="size_nw_se"
+        )
+        self._grip.place(relx=1.0, rely=1.0, anchor=tk.SE)
+        self._grip.bind("<Button-1>", self._start_resize)
+        self._grip.bind("<B1-Motion>", self._do_resize)
+
+    def _start_resize(self, event):
+        self._resize_x = event.x_root
+        self._resize_y = event.y_root
+        self._resize_w = self.root.winfo_width()
+        self._resize_h = self.root.winfo_height()
+
+    def _do_resize(self, event):
+        dx = event.x_root - self._resize_x
+        dy = event.y_root - self._resize_y
+        new_w = max(900, self._resize_w + dx)
+        new_h = max(500, self._resize_h + dy)
+        self.root.geometry(f"{new_w}x{new_h}")
+
+    # ── Corner decorations ──────────────────────────────────────
+
+    # Corner decorations removed — overlapped with content
+
+    # ── Animation system ────────────────────────────────────────
+
+    def _start_animation_loop(self):
+        """Start the unified animation loop."""
+        self._stop_animation_loop()
+        self._anim_frame = 0
+        self._anim_tick()
+
+    def _stop_animation_loop(self):
+        """Stop all animations."""
+        if self._anim_id:
+            self.root.after_cancel(self._anim_id)
+            self._anim_id = None
+
+    def _anim_tick(self):
+        """Master animation tick at ~30fps."""
+        self._anim_frame = (self._anim_frame + 1) % 3600
+
+        # Ticker
+        if self._ticker_running:
+            self._ticker_step()
+
+        # Pulsing borders
+        self._pulse_borders()
+
+        # Title glow
+        self._animate_title_glow()
+
+        # Neon sweep line
+        self._draw_title_neon_line()
+
+        # Status bar cursor blink + clock
+        self._animate_status_bar()
+
+        self._anim_id = self.root.after(33, self._anim_tick)
+
+    def _lerp_color(self, hex1, hex2, t):
+        """Linearly interpolate between two hex colors."""
+        r1, g1, b1 = int(hex1[1:3], 16), int(hex1[3:5], 16), int(hex1[5:7], 16)
+        r2, g2, b2 = int(hex2[1:3], 16), int(hex2[3:5], 16), int(hex2[5:7], 16)
+        r = int(r1 + (r2 - r1) * t)
+        g = int(g1 + (g2 - g1) * t)
+        b = int(b1 + (b2 - b1) * t)
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    def _pulse_borders(self):
+        """Animate panel borders with sine-wave pulsing at different intervals."""
+        for widget, color_key, period in self._neon_panels:
+            t_val = (math.sin(self._anim_frame * (2 * math.pi / period)) + 1) / 2
+            bright = DARK_THEME[color_key]
+            dim = DARK_THEME[color_key + "_dim"]
+            color = self._lerp_color(dim, bright, t_val)
+            widget.configure(highlightbackground=color)
+
+    def _animate_title_glow(self):
+        """Subtle color cycle on the WIREFEEDR title."""
+        t_val = (math.sin(self._anim_frame * (2 * math.pi / 180)) + 1) / 2
+        color = self._lerp_color(DARK_THEME["cyan"], DARK_THEME["magenta"], t_val)
+        self.title_label.configure(fg=color)
+
+    def _draw_title_neon_line(self):
+        """Draw animated neon sweep line under title bar."""
+        canvas = self.title_neon_line
+        w = canvas.winfo_width()
+        if w < 10:
+            return
+
+        # Ping-pong: sweep right then left over 240 frames (~8s round trip)
+        cycle = self._anim_frame % 240
+        pos = cycle / 120.0 if cycle < 120 else 2.0 - cycle / 120.0  # 0->1->0
+        center_x = int(pos * w)
+
+        # Reuse existing rectangles if already created, otherwise create them
+        segment_count = 60
+        seg_w = max(1, w // segment_count)
+
+        if not hasattr(self, '_neon_line_ids') or len(self._neon_line_ids) != segment_count:
+            canvas.delete("all")
+            self._neon_line_ids = []
+            for i in range(segment_count):
+                x = i * seg_w
+                rid = canvas.create_rectangle(x, 0, x + seg_w, 2, fill=DARK_THEME["magenta_dim"], outline="")
+                self._neon_line_ids.append(rid)
+
+        for i, rid in enumerate(self._neon_line_ids):
+            x = i * seg_w
+            dist = abs(x - center_x) / max(w, 1)
+            brightness = max(0, 1.0 - dist * 4)
+            color = self._lerp_color(DARK_THEME["magenta_dim"], DARK_THEME["magenta"], brightness)
+            canvas.itemconfigure(rid, fill=color)
+
+    def _animate_status_bar(self):
+        """Blink the cursor and update the clock."""
+        visible = (self._anim_frame // 16) % 2 == 0
+        self._cursor_label.configure(
+            fg=DARK_THEME["cyan"] if visible else DARK_THEME["status_bg"]
+        )
+        if self._anim_frame % 30 == 0:
+            now = datetime.now().strftime("%H:%M:%S")
+            self._clock_label.configure(text=now)
+
+    # ── Boot sequence ───────────────────────────────────────────
+
+    def _play_boot_sequence(self):
+        """Play cyberpunk boot-up animation."""
+        self._boot_overlay = tk.Canvas(
+            self.root, bg=DARK_THEME["bg"], highlightthickness=0
+        )
+        self._boot_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+        self.root.update_idletasks()
+        tk.Misc.lift(self._boot_overlay)
+
+        self._boot_lines = [
+            ">> WIREFEEDR v1.8",
+            ">> INITIALIZING NEURAL FEED PARSER...",
+            ">> CONNECTING TO NEWS GRID...",
+            ">> BIAS DETECTION MATRIX: ONLINE",
+            ">> SIGNAL LOCKED. WELCOME, OPERATOR.",
+        ]
+        self._boot_step = 0
+        self.root.after(200, self._boot_next_line)
+
+    def _boot_next_line(self):
+        """Display next boot line with typewriter effect."""
+        if self._boot_step >= len(self._boot_lines):
+            self.root.after(400, self._boot_fade_out)
+            return
+
+        y = 200 + self._boot_step * 28
+        text = self._boot_lines[self._boot_step]
+        color = DARK_THEME["cyan"] if self._boot_step < len(self._boot_lines) - 1 else DARK_THEME["magenta"]
+
+        self._boot_overlay.create_text(
+            60, y, text=text, fill=color, anchor=tk.W,
+            font=("Consolas", 11, "bold")
+        )
+        self._boot_step += 1
+        self.root.after(300, self._boot_next_line)
+
+    def _boot_fade_out(self):
+        """Remove boot overlay and start animations."""
+        self._boot_overlay.destroy()
+        self._start_animation_loop()
+
+    # ── Window close ────────────────────────────────────────────
+
     def _on_close(self):
         """Handle window close."""
-        self._stop_ticker_animation()
+        self._stop_animation_loop()
         self.storage.close()
         self.root.destroy()
+        self._owner.destroy()
 
 
 class AddFeedDialog:

@@ -3,8 +3,8 @@
 ## Project Goal
 Create a desktop news aggregator that delivers factual news via RSS feeds while filtering out sensationalism, opinion pieces, and propaganda.
 
-**Last Updated:** 2026-01-25
-**Status:** v1.7 - Core Functionality Rebuilt
+**Last Updated:** 2026-01-27
+**Status:** v1.8 - Dark Cyberpunk Theme Applied
 
 ---
 
@@ -29,7 +29,7 @@ News Aggregate/
 ├── PROJECT_LOG.md           # This file
 └── news_aggregator/
     ├── main.py              # Entry point
-    ├── app.py               # Tkinter GUI (~2200 lines)
+    ├── app.py               # Tkinter GUI (~2500 lines)
     ├── feeds.py             # RSS feed fetching/parsing
     ├── storage.py           # SQLite database operations
     ├── filters.py           # Content filtering logic
@@ -93,7 +93,8 @@ python main.py
 - [x] **Smart Daily Cap per Source** - Limit N articles per feed, ranked by quality score
 - [x] **Topic Clustering** - Group related articles with [+N] indicator, expandable in preview
 
-### UI Polish (v1.7)
+### UI Polish (v1.8)
+- [x] **Dark Cyberpunk Theme** - Full dark theme with neon cyan/magenta accents (Session 12)
 - [ ] **Cyberpunk Animations** - Pulsing neon borders, color cycling (NOT YET REBUILT)
 - [x] **Summary Highlighting** - Comprehensive entity-based highlighting with Wikipedia links:
   - People (Cyan), Titles (Purple), Government (Slate Blue), Military (Steel Blue)
@@ -446,12 +447,42 @@ New category-based highlighting with clickable Wikipedia links. Entity databases
 - ~1,780 total entity entries across all categories
 
 **Remaining for Future Sessions:**
-- **Ticker tape** (next session - implementation started)
-- Dark cyberpunk theme (neon cyan/magenta)
 - Borderless window with custom title bar
 - Pulsing border animations
 - WIREFEEDR branding
 - **Back up to GitHub** (priority)
+
+### Session 12 - 2026-01-27: Dark Cyberpunk Theme & Ticker Tape
+Restored the dark cyberpunk aesthetic lost in Session 10, plus the ticker tape from Session 9.
+
+**Dark Theme Applied to All Widgets:**
+- Switched ttk theme from Windows default to `clam` for full color control
+- Configured all ttk styles: TFrame, TLabel, TButton, TCheckbutton, TCombobox, Treeview, Treeview.Heading, TLabelframe, TPanedwindow, TSeparator, TScrollbar, TMenubutton, TEntry, TSpinbox
+- `style.map()` calls for interactive states: magenta hover, magenta selection, cyan active indicators
+- Root window background set to deepest black (`#05050a`)
+
+**Color Palette (from config.py DARK_THEME):**
+- Backgrounds: `#05050a` (deepest), `#0a0a12` (panels), `#10101a` (lists/inputs)
+- Text: `#e8e8e8` (primary), `#6a7080` (muted), `#ffffff` (highlight)
+- Accents: `#00ffff` (cyan), `#ff00ff` (magenta), `#ff1493` (hot pink)
+- Selection: magenta background with white text
+
+**Specific Widget Fixes:**
+- All 7 `tk.Menu` constructors (menubar, submenus, context menus, author menu) dark-themed
+- Combobox popdown listbox styled via `option_add` (dark bg, magenta selection)
+- Checkbutton indicators: dark background, cyan when selected
+- Treeview tags: unread = bold bright white, read = muted `#6a7080`
+- Preview text widget: dark bg with light text and cyan cursor
+- Bias/factual `tk.Label` widgets: dark background to blend when empty
+- All three dialog classes (AddFeed, ManageFeeds, FilterKeywords) dark-themed
+- Dialog status colors: `#ff4444` (error), `#44ff44` (success), muted gray (info)
+- Border colors (`bordercolor`, `lightcolor`, `darkcolor`) set on buttons, entries, treeviews, labelframes to eliminate white edges
+
+**Ticker Tape Restored:**
+- Scrolling cyan headlines from unread articles
+- Magenta highlight on hover, click to select, double-click to open
+- Seamless looping with dual-copy technique
+- Pause on mouse enter, resume on leave
 
 ---
 
@@ -467,7 +498,7 @@ These features reduce daily article count to a manageable ~20-30 articles.
 ### Medium Priority
 - [x] **Keyboard shortcuts** - Simplified: ↑/↓ navigate, Enter open, M read, H hide
 - [x] **Wikipedia hyperlinks** - Comprehensive entity highlighting with ~1,780 entries (Session 11)
-- [ ] **Ticker tape** - Was in Session 9, queued for Session 12
+- [x] **Ticker tape** - Scrolling unread headlines with click/hover interaction (Session 12)
 - [ ] **GitHub backup** - Push to repository for version control
 - [ ] OPML import/export for feed lists
 - [ ] Feed folders/grouping

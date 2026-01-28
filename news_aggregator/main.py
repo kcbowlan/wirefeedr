@@ -14,17 +14,9 @@ from app import NewsAggregatorApp
 def main():
     """Main entry point."""
     root = tk.Tk()
-
-    # Set app icon if available
-    try:
-        # On Windows, you could set an icon here
-        # root.iconbitmap('icon.ico')
-        pass
-    except tk.TclError:
-        pass
-
     app = NewsAggregatorApp(root)
-    root.mainloop()
+    # mainloop on the hidden owner (which owns the Toplevel)
+    app._owner.mainloop()
 
 
 if __name__ == "__main__":

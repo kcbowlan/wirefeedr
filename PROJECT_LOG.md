@@ -3,8 +3,8 @@
 ## Project Goal
 Create a desktop news aggregator that delivers factual news via RSS feeds while filtering out sensationalism, opinion pieces, and propaganda.
 
-**Last Updated:** 2026-01-27
-**Status:** v1.8 - Dark Cyberpunk Theme Applied
+**Last Updated:** 2026-01-28
+**Status:** v1.9 - Cyberpunk UI Overhaul (Borderless, Animations, Taskbar Icon)
 
 ---
 
@@ -29,7 +29,7 @@ News Aggregate/
 ├── PROJECT_LOG.md           # This file
 └── news_aggregator/
     ├── main.py              # Entry point
-    ├── app.py               # Tkinter GUI (~2500 lines)
+    ├── app.py               # Tkinter GUI (~2700 lines)
     ├── feeds.py             # RSS feed fetching/parsing
     ├── storage.py           # SQLite database operations
     ├── filters.py           # Content filtering logic
@@ -93,9 +93,9 @@ python main.py
 - [x] **Smart Daily Cap per Source** - Limit N articles per feed, ranked by quality score
 - [x] **Topic Clustering** - Group related articles with [+N] indicator, expandable in preview
 
-### UI Polish (v1.8)
+### UI Polish (v1.9)
 - [x] **Dark Cyberpunk Theme** - Full dark theme with neon cyan/magenta accents (Session 12)
-- [ ] **Cyberpunk Animations** - Pulsing neon borders, color cycling (NOT YET REBUILT)
+- [x] **Cyberpunk Animations** - Pulsing neon borders, title glow, neon sweep line (Session 13)
 - [x] **Summary Highlighting** - Comprehensive entity-based highlighting with Wikipedia links:
   - People (Cyan), Titles (Purple), Government (Slate Blue), Military (Steel Blue)
   - Organizations (Green), Countries (Orange), Places (Sienna), Events (Goldenrod)
@@ -484,6 +484,75 @@ Restored the dark cyberpunk aesthetic lost in Session 10, plus the ticker tape f
 - Seamless looping with dual-copy technique
 - Pause on mouse enter, resume on leave
 
+### Session 13 - 2026-01-28: Cyberpunk UI Overhaul — Borderless Window, Animations & Taskbar Icon
+Full visual overhaul making the app feel like a cyberpunk terminal application.
+
+**Borderless Window with Custom Title Bar:**
+- Removed native Windows chrome via `overrideredirect(True)` on a `Toplevel` window
+- Custom 32px title bar: LOGO.png + "WIREFEEDR" branding (Consolas 14 bold, cyan)
+- Title bar menu labels: FILE, FEEDS, ARTICLES, SETTINGS — click opens dark popup menus
+- Window controls: minimize (─), maximize (□), close (✕) using Segoe UI Symbol font
+- Hover effects: cyan dim for min/max, red for close
+- Drag-to-move and double-click-to-maximize on title bar
+- Bottom-right resize grip for manual window resizing
+
+**Taskbar Presence with Custom Icon:**
+- Hidden owner `tk.Tk()` window pattern — provides taskbar button for `overrideredirect` Toplevel
+- `SetCurrentProcessExplicitAppUserModelID` so Windows uses app icon instead of python.exe
+- `SetProcessDpiAwareness` for crisp rendering on high-DPI displays
+- Generated bold cyan "W" icon with magenta shadow (PIL) — reads clearly at all taskbar sizes
+- Each ICO size (256/64/48/32/24/16) individually LANCZOS-resampled
+
+**Unified 30fps Animation Loop:**
+- Single `_anim_tick()` method drives all animations via `after(33)`
+- Replaces separate `after()` calls for ticker — `_ticker_step()` no longer self-schedules
+- Frame counter (0–3599) used by all animation calculations
+
+**Pulsing Neon Borders:**
+- Panels converted from `ttk.LabelFrame` to `tk.LabelFrame` for per-widget `highlightbackground`
+- Sine-wave interpolation between dim/bright colors via `_lerp_color()` helper
+- Different cycle periods: Feeds ~3s (90 frames), Articles ~4s (120 frames), Preview ~5s (150 frames)
+- Feeds & Articles pulse cyan, Preview pulses magenta
+
+**Title Glow:**
+- "WIREFEEDR" label color cycles cyan ↔ magenta on a slow 6-second sine wave
+
+**Magenta Neon Sweep Line:**
+- 2px Canvas underneath title bar with sweeping magenta glow
+- Ping-pong pattern (left→right→left) over ~8 seconds, no hard reset
+- Canvas rectangle items created once and reused via `itemconfigure` for smooth rendering
+
+**Cyberpunk Status Bar:**
+- Terminal-style `>> READY` prefix on all status messages (uppercased)
+- Blinking block cursor (█) on the right side
+- Digital clock (HH:MM:SS) in Consolas font
+
+**Boot Sequence:**
+- Canvas overlay on launch with typewriter-style lines (300ms each):
+  - `>> WIREFEEDR v1.9`
+  - `>> INITIALIZING NEURAL FEED PARSER...`
+  - `>> CONNECTING TO NEWS GRID...`
+  - `>> BIAS DETECTION MATRIX: ONLINE`
+  - `>> SIGNAL LOCKED. WELCOME, OPERATOR.`
+- Overlay auto-removes, then animation loop starts
+
+**Restructured Build Pipeline (`__init__`):**
+```
+_setup_styles()
+_build_title_bar()        # Custom chrome
+_build_menus()            # Popup menus (replacing native menubar)
+_bind_shortcuts()         # Keyboard bindings
+_build_toolbar()
+_build_ticker()
+_build_main_layout()      # Panels now tk.LabelFrame
+_build_status_bar()       # Cyberpunk terminal style
+_build_resize_grip()      # Bottom-right handle
+_play_boot_sequence()     # Typewriter intro → starts animation loop
+```
+
+**Entry Point Change (`main.py`):**
+- `app._owner.mainloop()` — mainloop runs on hidden owner, not the Toplevel
+
 ---
 
 ## Potential Future Enhancements
@@ -499,6 +568,8 @@ These features reduce daily article count to a manageable ~20-30 articles.
 - [x] **Keyboard shortcuts** - Simplified: ↑/↓ navigate, Enter open, M read, H hide
 - [x] **Wikipedia hyperlinks** - Comprehensive entity highlighting with ~1,780 entries (Session 11)
 - [x] **Ticker tape** - Scrolling unread headlines with click/hover interaction (Session 12)
+- [x] **Borderless window** - Custom title bar, drag-to-move, taskbar icon (Session 13)
+- [x] **Pulsing border animations** - Sine-wave neon borders, title glow, sweep line (Session 13)
 - [ ] **GitHub backup** - Push to repository for version control
 - [ ] OPML import/export for feed lists
 - [ ] Feed folders/grouping

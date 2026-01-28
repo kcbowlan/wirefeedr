@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+news_aggregator/data/
+*.db
+nul
+.claude/

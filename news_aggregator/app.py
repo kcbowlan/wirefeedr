@@ -12,7 +12,7 @@ import io
 from storage import Storage
 from feeds import FeedManager
 from filters import FilterEngine
-from config import BIAS_COLORS, FACTUAL_COLORS
+from config import BIAS_COLORS, FACTUAL_COLORS, DARK_THEME
 
 
 class NewsAggregatorApp:
@@ -36,10 +36,22 @@ class NewsAggregatorApp:
         self.cluster_map = {}  # Maps article_id -> cluster info for expanding
         self.feed_icons = {}  # Cache for PhotoImage objects
 
+        # Ticker state
+        self.ticker_canvas = None
+        self.ticker_frame = None
+        self.ticker_canvas_to_article = {}  # canvas item ID -> article ID
+        self.ticker_offset = 0
+        self.ticker_total_width = 0
+        self.ticker_paused = False
+        self.ticker_animation_id = None
+        self.ticker_speed = 2
+        self._ticker_resize_job = None
+
         # Build UI
         self._setup_styles()
         self._build_menu()
         self._build_toolbar()
+        self._build_ticker()
         self._build_main_layout()
         self._build_status_bar()
 
@@ -54,18 +66,105 @@ class NewsAggregatorApp:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _setup_styles(self):
-        """Configure ttk styles."""
+        """Configure ttk styles with dark cyberpunk theme."""
+        self.root.configure(bg=DARK_THEME["bg"])
+
         style = ttk.Style()
-        style.configure("Treeview", rowheight=25)
+        style.theme_use("clam")
+        t = DARK_THEME
+
+        # Root default
+        style.configure(".", background=t["bg"], foreground=t["fg"])
+
+        # Frames
+        style.configure("TFrame", background=t["bg"])
+        style.configure("TLabel", background=t["bg"], foreground=t["fg"])
+        style.configure("TButton", background=t["bg_tertiary"], foreground=t["cyan"], padding=5,
+                         bordercolor=t["cyan_dim"], lightcolor=t["bg_tertiary"],
+                         darkcolor=t["bg_tertiary"])
+        style.map("TButton",
+                  background=[("active", t["magenta"]), ("pressed", t["magenta_dim"])],
+                  foreground=[("active", t["fg_highlight"]), ("pressed", t["fg_highlight"])],
+                  bordercolor=[("active", t["magenta"])])
+        style.configure("TCheckbutton", background=t["bg"], foreground=t["fg"],
+                         indicatorcolor=t["bg_tertiary"], indicatorrelief=tk.FLAT)
+        style.map("TCheckbutton",
+                  background=[("active", t["bg"])],
+                  foreground=[("active", t["cyan"])],
+                  indicatorcolor=[("selected", t["cyan"]), ("active", t["bg_tertiary"])])
+        style.configure("TCombobox", fieldbackground=t["bg_tertiary"], foreground=t["fg"],
+                         background=t["bg_tertiary"], arrowcolor=t["cyan"])
+        style.map("TCombobox",
+                  fieldbackground=[("readonly", t["bg_tertiary"])],
+                  foreground=[("readonly", t["fg"])],
+                  selectbackground=[("readonly", t["magenta"])],
+                  selectforeground=[("readonly", t["fg_highlight"])],
+                  arrowcolor=[("active", t["magenta"])])
+
+        # Treeview
+        style.configure("Treeview", background=t["bg_tertiary"], foreground=t["fg"],
+                         fieldbackground=t["bg_tertiary"], rowheight=28,
+                         bordercolor=t["cyan_dim"], lightcolor=t["bg"], darkcolor=t["bg"])
+        style.map("Treeview",
+                  background=[("selected", t["selected"])],
+                  foreground=[("selected", t["selected_fg"])])
+        style.configure("Treeview.Heading", background=t["bg_secondary"], foreground=t["cyan"],
+                         bordercolor=t["cyan_dim"], lightcolor=t["bg_secondary"],
+                         darkcolor=t["bg_secondary"])
+        style.map("Treeview.Heading",
+                  background=[("active", t["bg_toolbar"])],
+                  foreground=[("active", t["magenta"])])
+
+        # LabelFrame
+        style.configure("TLabelframe", background=t["bg"],
+                         bordercolor=t["cyan_dim"], lightcolor=t["bg"], darkcolor=t["bg"])
+        style.configure("TLabelframe.Label", background=t["bg"], foreground=t["cyan"])
+
+        # PanedWindow
+        style.configure("TPanedwindow", background=t["bg"])
+
+        # Separator
+        style.configure("TSeparator", background=t["cyan_dim"])
+
+        # Scrollbar
+        style.configure("TScrollbar", background=t["bg_secondary"], troughcolor=t["bg"],
+                         arrowcolor=t["cyan"])
+        style.map("TScrollbar",
+                  background=[("active", t["magenta"]), ("pressed", t["magenta_dim"])],
+                  arrowcolor=[("active", t["magenta"])])
+
+        # Menubutton
+        style.configure("TMenubutton", background=t["bg_tertiary"], foreground=t["cyan"])
+        style.map("TMenubutton",
+                  background=[("active", t["magenta"])],
+                  foreground=[("active", t["fg_highlight"])])
+
+        # Entry
+        style.configure("TEntry", fieldbackground=t["bg_tertiary"], foreground=t["fg"],
+                         bordercolor=t["cyan_dim"], lightcolor=t["bg_tertiary"],
+                         darkcolor=t["bg_tertiary"], insertcolor=t["cyan"])
+
+        # Spinbox
+        style.configure("TSpinbox", fieldbackground=t["bg_tertiary"], foreground=t["fg"],
+                         background=t["bg_tertiary"])
+
         style.configure("Toolbutton", padding=5)
+
+        # Style combobox dropdown popdown (tk.Listbox inside)
+        self.root.option_add("*TCombobox*Listbox.background", t["bg_tertiary"])
+        self.root.option_add("*TCombobox*Listbox.foreground", t["fg"])
+        self.root.option_add("*TCombobox*Listbox.selectBackground", t["magenta"])
+        self.root.option_add("*TCombobox*Listbox.selectForeground", t["fg_highlight"])
 
     def _build_menu(self):
         """Build the menu bar."""
-        menubar = tk.Menu(self.root)
+        _m = dict(bg=DARK_THEME["bg_secondary"], fg=DARK_THEME["fg"],
+                  activebackground=DARK_THEME["magenta"], activeforeground=DARK_THEME["fg_highlight"])
+        menubar = tk.Menu(self.root, **_m)
         self.root.config(menu=menubar)
 
         # File menu
-        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu = tk.Menu(menubar, tearoff=0, **_m)
         menubar.add_cascade(label="File", menu=file_menu)
         file_menu.add_command(label="Refresh All Feeds", command=self.fetch_all_feeds,
                               accelerator="F5")
@@ -73,20 +172,20 @@ class NewsAggregatorApp:
         file_menu.add_command(label="Exit", command=self._on_close)
 
         # Feeds menu
-        feeds_menu = tk.Menu(menubar, tearoff=0)
+        feeds_menu = tk.Menu(menubar, tearoff=0, **_m)
         menubar.add_cascade(label="Feeds", menu=feeds_menu)
         feeds_menu.add_command(label="Add Feed...", command=self.show_add_feed_dialog)
         feeds_menu.add_command(label="Manage Feeds...", command=self.show_manage_feeds_dialog)
 
         # Articles menu
-        articles_menu = tk.Menu(menubar, tearoff=0)
+        articles_menu = tk.Menu(menubar, tearoff=0, **_m)
         menubar.add_cascade(label="Articles", menu=articles_menu)
         articles_menu.add_command(label="Mark All as Read", command=self.mark_all_read)
         articles_menu.add_separator()
         articles_menu.add_command(label="Delete Old Articles...", command=self.show_delete_old_dialog)
 
         # Settings menu
-        settings_menu = tk.Menu(menubar, tearoff=0)
+        settings_menu = tk.Menu(menubar, tearoff=0, **_m)
         menubar.add_cascade(label="Settings", menu=settings_menu)
         settings_menu.add_command(label="Filter Keywords...", command=self.show_filter_keywords_dialog)
 
@@ -161,6 +260,186 @@ class NewsAggregatorApp:
         ttk.Button(toolbar, text="Go", command=self.search_articles, width=4).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="Clear", command=self.clear_search, width=5).pack(side=tk.LEFT, padx=2)
 
+    def _build_ticker(self):
+        """Build the scrolling ticker tape banner."""
+        self.ticker_frame = ttk.Frame(self.root, height=28)
+        self.ticker_frame.pack(side=tk.TOP, fill=tk.X, padx=5)
+        self.ticker_frame.pack_propagate(False)
+
+        self.ticker_canvas = tk.Canvas(
+            self.ticker_frame,
+            height=28,
+            bg=DARK_THEME["bg_secondary"],
+            highlightthickness=1,
+            highlightbackground=DARK_THEME["cyan_dim"],
+        )
+        self.ticker_canvas.pack(fill=tk.BOTH, expand=True)
+
+        # Bind events
+        self.ticker_canvas.bind("<Enter>", lambda e: self._ticker_set_paused(True))
+        self.ticker_canvas.bind("<Leave>", lambda e: self._ticker_set_paused(False))
+        self.ticker_canvas.bind("<Button-1>", self._on_ticker_click)
+        self.ticker_canvas.bind("<Double-1>", self._on_ticker_double_click)
+        self.ticker_canvas.bind("<Motion>", self._on_ticker_motion)
+        self.ticker_canvas.bind("<Configure>", self._on_ticker_configure)
+
+    def _ticker_set_paused(self, paused):
+        """Pause or resume ticker animation."""
+        self.ticker_paused = paused
+        if not paused:
+            # Reset all text colors back to cyan when leaving
+            for item_id in self.ticker_canvas.find_withtag("ticker_text"):
+                self.ticker_canvas.itemconfigure(item_id, fill=DARK_THEME["cyan"])
+
+    def _on_ticker_configure(self, event):
+        """Handle ticker canvas resize with debounce."""
+        if self._ticker_resize_job:
+            self.root.after_cancel(self._ticker_resize_job)
+        self._ticker_resize_job = self.root.after(200, self._update_ticker)
+
+    def _update_ticker(self):
+        """Rebuild ticker content from unread articles in the treeview."""
+        self.ticker_canvas.delete("all")
+        self.ticker_canvas_to_article = {}
+        self.ticker_offset = 0
+
+        # Collect unread articles from treeview
+        unread_items = []
+        for item_id in self.articles_tree.get_children():
+            tags = self.articles_tree.item(item_id, "tags")
+            if "unread" in tags:
+                values = self.articles_tree.item(item_id, "values")
+                # values: (title, source, bias, date, score)
+                unread_items.append({
+                    "article_id": int(item_id),
+                    "title": values[0],
+                    "source": values[1],
+                })
+
+        if not unread_items:
+            # Show placeholder
+            self.ticker_canvas.create_text(
+                self.ticker_canvas.winfo_width() // 2, 14,
+                text="No unread articles",
+                fill=DARK_THEME["fg_secondary"],
+                font=("TkDefaultFont", 9, "italic"),
+                anchor=tk.CENTER,
+            )
+            self._stop_ticker_animation()
+            return
+
+        # Build text items — two copies for seamless looping
+        separator = "  \u2022  "  # bullet
+        x = 0
+        font = ("TkDefaultFont", 9)
+        copy_positions = []  # track (x_start, article_id) for both copies
+
+        for copy in range(2):
+            for i, item in enumerate(unread_items):
+                label = f"[{item['source']}]: {item['title']}"
+                text_id = self.ticker_canvas.create_text(
+                    x, 14,
+                    text=label,
+                    fill=DARK_THEME["cyan"],
+                    font=font,
+                    anchor=tk.W,
+                    tags="ticker_text",
+                )
+                self.ticker_canvas_to_article[text_id] = item["article_id"]
+                bbox = self.ticker_canvas.bbox(text_id)
+                text_width = bbox[2] - bbox[0] if bbox else 100
+                x += text_width
+
+                # Add separator (not after last item in second copy)
+                if i < len(unread_items) - 1 or copy == 0:
+                    sep_id = self.ticker_canvas.create_text(
+                        x, 14,
+                        text=separator,
+                        fill=DARK_THEME["fg_secondary"],
+                        font=font,
+                        anchor=tk.W,
+                        tags="ticker_text",
+                    )
+                    sep_bbox = self.ticker_canvas.bbox(sep_id)
+                    sep_width = sep_bbox[2] - sep_bbox[0] if sep_bbox else 20
+                    x += sep_width
+
+            if copy == 0:
+                self.ticker_total_width = x
+
+        self._start_ticker_animation()
+
+    def _ticker_animate(self):
+        """Move all ticker items left by speed pixels."""
+        if not self.ticker_paused and self.ticker_total_width > 0:
+            self.ticker_canvas.move("ticker_text", -self.ticker_speed, 0)
+            self.ticker_offset += self.ticker_speed
+
+            if self.ticker_offset >= self.ticker_total_width:
+                # Reset: shift everything back by one full copy width
+                self.ticker_canvas.move("ticker_text", self.ticker_total_width, 0)
+                self.ticker_offset -= self.ticker_total_width
+
+        self.ticker_animation_id = self.root.after(33, self._ticker_animate)  # ~30fps
+
+    def _start_ticker_animation(self):
+        """Start the ticker animation loop."""
+        self._stop_ticker_animation()
+        self.ticker_animation_id = self.root.after(33, self._ticker_animate)
+
+    def _stop_ticker_animation(self):
+        """Cancel the ticker animation loop."""
+        if self.ticker_animation_id:
+            self.root.after_cancel(self.ticker_animation_id)
+            self.ticker_animation_id = None
+
+    def _on_ticker_click(self, event):
+        """Handle single click on ticker — select article in treeview."""
+        item_id = self.ticker_canvas.find_closest(event.x, event.y)
+        if not item_id:
+            return
+        item_id = item_id[0]
+        article_id = self.ticker_canvas_to_article.get(item_id)
+        if article_id is None:
+            return
+
+        article_str = str(article_id)
+        if self.articles_tree.exists(article_str):
+            self.articles_tree.selection_set(article_str)
+            self.articles_tree.see(article_str)
+            self.articles_tree.event_generate("<<TreeviewSelect>>")
+
+    def _on_ticker_double_click(self, event):
+        """Handle double-click on ticker — open article in browser."""
+        item_id = self.ticker_canvas.find_closest(event.x, event.y)
+        if not item_id:
+            return
+        item_id = item_id[0]
+        article_id = self.ticker_canvas_to_article.get(item_id)
+        if article_id is None:
+            return
+
+        article = self.storage.get_article(article_id)
+        if article:
+            webbrowser.open(article["link"])
+            if not article["is_read"]:
+                self.storage.mark_article_read(article_id)
+                self.refresh_feeds_list()
+                self.refresh_articles()
+
+    def _on_ticker_motion(self, event):
+        """Highlight headline under cursor (magenta), others stay cyan."""
+        closest = self.ticker_canvas.find_closest(event.x, event.y)
+        if not closest:
+            return
+        closest_id = closest[0]
+
+        for item_id in self.ticker_canvas.find_withtag("ticker_text"):
+            if item_id == closest_id and item_id in self.ticker_canvas_to_article:
+                self.ticker_canvas.itemconfigure(item_id, fill=DARK_THEME["magenta"])
+            else:
+                self.ticker_canvas.itemconfigure(item_id, fill=DARK_THEME["cyan"])
+
     def _build_main_layout(self):
         """Build the main paned layout."""
         # Main paned window
@@ -227,8 +506,9 @@ class NewsAggregatorApp:
         self.articles_tree.bind("<Button-3>", self._on_article_right_click)
 
         # Configure tags for read/unread styling
-        self.articles_tree.tag_configure("unread", font=("TkDefaultFont", 9, "bold"))
-        self.articles_tree.tag_configure("read", foreground="gray")
+        self.articles_tree.tag_configure("unread", font=("TkDefaultFont", 9, "bold"),
+                                          foreground=DARK_THEME["fg"])
+        self.articles_tree.tag_configure("read", foreground=DARK_THEME["fg_secondary"])
 
         # Preview panel
         preview_frame = ttk.LabelFrame(right_paned, text="Preview", padding=5)
@@ -248,7 +528,10 @@ class NewsAggregatorApp:
 
         # Search Author dropdown menu
         self.author_menu_btn = ttk.Menubutton(btn_frame, text="Search Author")
-        self.author_menu = tk.Menu(self.author_menu_btn, tearoff=0)
+        self.author_menu = tk.Menu(self.author_menu_btn, tearoff=0,
+                                    bg=DARK_THEME["bg_secondary"], fg=DARK_THEME["fg"],
+                                    activebackground=DARK_THEME["magenta"],
+                                    activeforeground=DARK_THEME["fg_highlight"])
         self.author_menu_btn["menu"] = self.author_menu
         self.author_menu.add_command(label="Google", command=lambda: self._search_author("google"))
         self.author_menu.add_command(label="LinkedIn", command=lambda: self._search_author("linkedin"))
@@ -267,21 +550,23 @@ class NewsAggregatorApp:
 
         ttk.Label(bias_frame, text="Source Bias:", font=("TkDefaultFont", 9)).pack(side=tk.LEFT)
         self.bias_label = tk.Label(bias_frame, text="", font=("TkDefaultFont", 9, "bold"),
-                                    padx=8, pady=2)
+                                    bg=DARK_THEME["bg"], padx=8, pady=2)
         self.bias_label.pack(side=tk.LEFT, padx=5)
 
         ttk.Label(bias_frame, text="Factual Rating:", font=("TkDefaultFont", 9)).pack(side=tk.LEFT, padx=(10, 0))
         self.factual_label = tk.Label(bias_frame, text="", font=("TkDefaultFont", 9, "bold"),
-                                       padx=8, pady=2)
+                                       bg=DARK_THEME["bg"], padx=8, pady=2)
         self.factual_label.pack(side=tk.LEFT, padx=5)
 
         # Preview meta info
-        self.preview_meta = ttk.Label(preview_frame, text="", foreground="gray")
+        self.preview_meta = ttk.Label(preview_frame, text="", foreground=DARK_THEME["fg_secondary"])
         self.preview_meta.pack(fill=tk.X)
 
         # Preview text
         self.preview_text = tk.Text(preview_frame, wrap=tk.WORD, height=8, state=tk.DISABLED,
-                                     bg="#f8f8f8", relief=tk.FLAT, padx=10, pady=10)
+                                     bg=DARK_THEME["bg_tertiary"], fg=DARK_THEME["fg"],
+                                     insertbackground=DARK_THEME["cyan"],
+                                     relief=tk.FLAT, padx=10, pady=10)
         self.preview_text.pack(fill=tk.BOTH, expand=True, pady=5)
 
         # Configure semantic highlighting tags
@@ -456,6 +741,8 @@ class NewsAggregatorApp:
         else:
             self._display_flat_articles(articles)
             self._update_status(f"Showing {len(articles)} articles")
+
+        self._update_ticker()
 
     def _display_flat_articles(self, articles: list):
         """Display articles without clustering."""
@@ -828,7 +1115,10 @@ class NewsAggregatorApp:
             self.feeds_tree.selection_set(item)
             feed_id = int(item.replace("feed_", ""))
 
-            menu = tk.Menu(self.root, tearoff=0)
+            menu = tk.Menu(self.root, tearoff=0,
+                          bg=DARK_THEME["bg_secondary"], fg=DARK_THEME["fg"],
+                          activebackground=DARK_THEME["magenta"],
+                          activeforeground=DARK_THEME["fg_highlight"])
             menu.add_command(label="Refresh This Feed",
                              command=lambda: self._fetch_single_feed(feed_id))
             menu.add_command(label="Mark All as Read",
@@ -934,6 +1224,7 @@ class NewsAggregatorApp:
                 self.refresh_feeds_list()
                 # Update just this row's tag
                 self.articles_tree.item(str(article_id), tags=("read",))
+                self._update_ticker()
 
     def _on_article_double_click(self, event):
         """Handle double-click on article."""
@@ -946,7 +1237,10 @@ class NewsAggregatorApp:
             self.articles_tree.selection_set(item)
             article_id = int(item)
 
-            menu = tk.Menu(self.root, tearoff=0)
+            menu = tk.Menu(self.root, tearoff=0,
+                          bg=DARK_THEME["bg_secondary"], fg=DARK_THEME["fg"],
+                          activebackground=DARK_THEME["magenta"],
+                          activeforeground=DARK_THEME["fg_highlight"])
             menu.add_command(label="Open in Browser", command=self.open_in_browser)
             menu.add_command(label="Mark as Unread",
                              command=lambda: self._toggle_read(article_id, False))
@@ -1965,6 +2259,7 @@ class NewsAggregatorApp:
 
     def _on_close(self):
         """Handle window close."""
+        self._stop_ticker_animation()
         self.storage.close()
         self.root.destroy()
 
@@ -1981,6 +2276,7 @@ class AddFeedDialog:
         self.dialog.geometry("500x200")
         self.dialog.transient(parent)
         self.dialog.grab_set()
+        self.dialog.configure(bg=DARK_THEME["bg"])
 
         # Center on parent
         self.dialog.geometry(f"+{parent.winfo_x() + 100}+{parent.winfo_y() + 100}")
@@ -2015,7 +2311,7 @@ class AddFeedDialog:
         ttk.Button(btn_frame, text="Cancel", command=self.dialog.destroy).pack(side=tk.LEFT, padx=5)
 
         # Status
-        self.status_label = ttk.Label(frame, text="", foreground="gray")
+        self.status_label = ttk.Label(frame, text="", foreground=DARK_THEME["fg_secondary"])
         self.status_label.grid(row=4, column=0, columnspan=2)
 
         frame.columnconfigure(1, weight=1)
@@ -2027,22 +2323,22 @@ class AddFeedDialog:
         """Validate the feed URL."""
         url = self.url_var.get().strip()
         if not url:
-            self.status_label.configure(text="Please enter a URL", foreground="red")
+            self.status_label.configure(text="Please enter a URL", foreground="#ff4444")
             return
 
-        self.status_label.configure(text="Validating...", foreground="gray")
+        self.status_label.configure(text="Validating...", foreground=DARK_THEME["fg_secondary"])
         self.dialog.update()
 
         result = self.feed_manager.validate_feed_url(url)
         if result["valid"]:
             self.status_label.configure(
                 text=f"Valid feed: {result['feed_title']} ({result['article_count']} articles)",
-                foreground="green"
+                foreground="#44ff44"
             )
             if not self.name_var.get():
                 self.name_var.set(result["feed_title"])
         else:
-            self.status_label.configure(text=f"Invalid: {result['error']}", foreground="red")
+            self.status_label.configure(text=f"Invalid: {result['error']}", foreground="#ff4444")
 
     def _add(self):
         """Add the feed."""
@@ -2051,11 +2347,11 @@ class AddFeedDialog:
         category = self.category_var.get().strip() or "Uncategorized"
 
         if not url:
-            self.status_label.configure(text="Please enter a URL", foreground="red")
+            self.status_label.configure(text="Please enter a URL", foreground="#ff4444")
             return
 
         if not name:
-            self.status_label.configure(text="Please enter a name", foreground="red")
+            self.status_label.configure(text="Please enter a name", foreground="#ff4444")
             return
 
         self.result = (name, url, category)
@@ -2074,6 +2370,7 @@ class ManageFeedsDialog:
         self.dialog.geometry("600x400")
         self.dialog.transient(parent)
         self.dialog.grab_set()
+        self.dialog.configure(bg=DARK_THEME["bg"])
 
         frame = ttk.Frame(self.dialog, padding=10)
         frame.pack(fill=tk.BOTH, expand=True)
@@ -2134,6 +2431,7 @@ class FilterKeywordsDialog:
         self.dialog.geometry("500x400")
         self.dialog.transient(parent)
         self.dialog.grab_set()
+        self.dialog.configure(bg=DARK_THEME["bg"])
 
         frame = ttk.Frame(self.dialog, padding=10)
         frame.pack(fill=tk.BOTH, expand=True)

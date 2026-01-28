@@ -9,6 +9,7 @@ from typing import Optional
 from urllib.parse import urlparse
 import io
 import math
+import random
 import sys
 import os
 
@@ -20,17 +21,8 @@ from config import BIAS_COLORS, FACTUAL_COLORS, DARK_THEME
 
 class NewsAggregatorApp:
     def __init__(self, root: tk.Tk):
-        # Windows: set DPI awareness (crisp icons/text) and AppUserModelID (custom taskbar icon)
+        # Windows: set AppUserModelID so taskbar uses our icon instead of python.exe's
         if sys.platform == "win32":
-            try:
-                import ctypes
-                ctypes.windll.shcore.SetProcessDpiAwareness(1)  # PROCESS_SYSTEM_DPI_AWARE
-            except Exception:
-                try:
-                    import ctypes
-                    ctypes.windll.user32.SetProcessDPIAware()
-                except Exception:
-                    pass
             try:
                 import ctypes
                 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("wirefeedr.app.1")
@@ -44,12 +36,14 @@ class NewsAggregatorApp:
         self._owner.attributes("-alpha", 0)
         self._owner.geometry("1x1+-10000+-10000")
 
-        # Real visible window as borderless Toplevel
+        # Real visible window as Toplevel (borderless via Win32 style stripping)
         self.root = tk.Toplevel(self._owner)
-        self.root.overrideredirect(True)
         self.root.title("WIREFEEDR")
         self.root.geometry("1200x700")
         self.root.minsize(900, 500)
+
+        # Strip native title bar via Win32 API (keeps proper z-order unlike overrideredirect)
+        self._strip_title_bar()
 
         # Restore from taskbar click on hidden owner
         self._owner.bind("<Map>", self._on_taskbar_restore)
@@ -86,8 +80,35 @@ class NewsAggregatorApp:
         self._neon_panels = []
         self._is_maximized = False
         self._normal_geometry = ""
-        self._drag_x = 0
-        self._drag_y = 0
+        self._drag_start_x = 0
+        self._drag_start_y = 0
+        self._drag_win_x = 0
+        self._drag_win_y = 0
+
+        # Glitch effect (on refresh)
+        self._glitch_active = False
+        self._glitch_end_frame = 0
+
+        # Feed glow (new articles)
+        self._glowing_feeds = {}
+        self._pre_refresh_counts = {}
+
+        # Hover glow (article list)
+        self._hover_item = None
+
+        # Sash flash (panel divider)
+        self._sash_flash_active = False
+        self._sash_flash_end_frame = 0
+        self._sash_dragging = False
+
+        # Typewriter effect (preview)
+        self._typewriter_active = False
+        self._typewriter_words = []
+        self._typewriter_pos = 0
+        self._typewriter_chunk_size = 3
+        self._typewriter_article_id = None
+        self._typewriter_pending_highlight = False
+        self._typewriter_full_text = ""
 
         # Build UI
         self._setup_styles()
@@ -118,6 +139,11 @@ class NewsAggregatorApp:
 
         # Bind window close
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # Ensure the window is visible and focused
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
 
         # Boot sequence (starts animation loop when complete)
         self._play_boot_sequence()
@@ -262,25 +288,26 @@ class NewsAggregatorApp:
 
         btn_style = dict(
             bg=t["bg_secondary"], fg=t["fg"],
-            font=("Segoe UI Symbol", 11), bd=0, padx=14, pady=2,
-            activebackground=t["bg_tertiary"], activeforeground=t["fg_highlight"]
+            font=("Segoe UI Symbol", 11), bd=0, padx=10, pady=2,
+            activebackground=t["bg_tertiary"], activeforeground=t["fg_highlight"],
+            width=3
         )
 
         # Minimize  (U+2012 figure dash - thin horizontal line)
         min_btn = tk.Button(ctrl_frame, text="\u2012", command=self._minimize_window, **btn_style)
-        min_btn.pack(side=tk.LEFT)
+        min_btn.pack(side=tk.LEFT, padx=(0, 1))
         min_btn.bind("<Enter>", lambda e: e.widget.configure(bg=t["cyan_dim"], fg=t["cyan"]))
         min_btn.bind("<Leave>", lambda e: e.widget.configure(bg=t["bg_secondary"], fg=t["fg"]))
 
         # Maximize/Restore (U+25FB white medium square)
         self.max_btn = tk.Button(ctrl_frame, text="\u25fb", command=self._toggle_maximize, **btn_style)
-        self.max_btn.pack(side=tk.LEFT)
+        self.max_btn.pack(side=tk.LEFT, padx=(0, 1))
         self.max_btn.bind("<Enter>", lambda e: e.widget.configure(bg=t["cyan_dim"], fg=t["cyan"]))
         self.max_btn.bind("<Leave>", lambda e: e.widget.configure(bg=t["bg_secondary"], fg=t["fg"]))
 
-        # Close (U+2715 multiplication x)
+        # Close (U+2715 multiplication x) — separated from other buttons
         close_btn = tk.Button(ctrl_frame, text="\u2715", command=self._on_close, **btn_style)
-        close_btn.pack(side=tk.LEFT)
+        close_btn.pack(side=tk.LEFT, padx=(4, 2))
         close_btn.bind("<Enter>", lambda e: e.widget.configure(bg="#cc0000", fg="#ffffff"))
         close_btn.bind("<Leave>", lambda e: e.widget.configure(bg=t["bg_secondary"], fg=t["fg"]))
 
@@ -310,6 +337,7 @@ class NewsAggregatorApp:
         for widget in [self.title_bar, self.title_label, logo_frame]:
             widget.bind("<Button-1>", self._start_drag)
             widget.bind("<B1-Motion>", self._do_drag)
+            widget.bind("<ButtonRelease-1>", self._end_drag)
             widget.bind("<Double-1>", lambda e: self._toggle_maximize())
 
         # Neon line under title bar
@@ -640,7 +668,8 @@ class NewsAggregatorApp:
 
     def _build_articles_panel(self):
         """Build the articles and preview panel."""
-        right_paned = ttk.PanedWindow(self.main_paned, orient=tk.VERTICAL)
+        self.right_paned = ttk.PanedWindow(self.main_paned, orient=tk.VERTICAL)
+        right_paned = self.right_paned
         self.main_paned.add(right_paned, weight=4)
 
         # Articles list
@@ -688,6 +717,11 @@ class NewsAggregatorApp:
         self.articles_tree.tag_configure("unread", font=("TkDefaultFont", 9, "bold"),
                                           foreground=DARK_THEME["fg"])
         self.articles_tree.tag_configure("read", foreground=DARK_THEME["fg_secondary"])
+        self.articles_tree.tag_configure("hover", background="#1a1a2e")
+
+        # Hover glow on article rows
+        self.articles_tree.bind("<Motion>", self._on_article_hover)
+        self.articles_tree.bind("<Leave>", self._on_article_leave)
 
         # Preview panel
         self.preview_frame = tk.LabelFrame(
@@ -701,6 +735,11 @@ class NewsAggregatorApp:
         )
         preview_frame = self.preview_frame
         right_paned.add(preview_frame, weight=1)
+
+        # Sash flash bindings
+        for paned in [self.main_paned, self.right_paned]:
+            paned.bind("<ButtonPress-1>", self._on_sash_press)
+            paned.bind("<ButtonRelease-1>", self._on_sash_release)
 
         # Preview header
         header_frame = ttk.Frame(preview_frame)
@@ -1024,6 +1063,8 @@ class NewsAggregatorApp:
         self.is_fetching = True
         self.refresh_btn.configure(state=tk.DISABLED)
         self._update_status("Fetching feeds...")
+        self._start_glitch()
+        self._snapshot_feed_counts()
 
         def fetch_thread():
             feeds = self.storage.get_feeds()
@@ -1076,6 +1117,7 @@ class NewsAggregatorApp:
                 self.refresh_btn.configure(state=tk.NORMAL)
                 self.refresh_feeds_list()
                 self.refresh_articles()
+                self._detect_new_article_feeds()
                 self._update_status(
                     f"Fetched {success_count}/{total} feeds, {article_count} new articles"
                 )
@@ -1399,21 +1441,10 @@ class NewsAggregatorApp:
 
             self.preview_text.configure(state=tk.NORMAL)
             self.preview_text.delete("1.0", tk.END)
+            self.preview_text.configure(state=tk.DISABLED)
 
             summary = article.get("summary", "No summary available.")
-            self._apply_highlighting(self.preview_text, summary)
-
-            # Show related articles if this is a cluster representative
-            if hasattr(self, 'cluster_map') and article_id in self.cluster_map:
-                cluster = self.cluster_map[article_id]
-                if cluster["count"] > 1:
-                    self.preview_text.insert(tk.END, "\n\n─── RELATED ARTICLES ───\n\n")
-                    for i, related in enumerate(cluster["articles"][1:], 1):  # Skip representative
-                        source = related.get("feed_name", "Unknown")
-                        score = related.get("noise_score", 0)
-                        self.preview_text.insert(tk.END, f"• [{source}] {related['title']} ({score})\n")
-
-            self.preview_text.configure(state=tk.DISABLED)
+            self._start_typewriter(summary, article_id)
 
             self.open_btn.configure(state=tk.NORMAL)
 
@@ -1513,7 +1544,7 @@ class NewsAggregatorApp:
     def _setup_highlight_tags(self):
         """Configure text tags for semantic highlighting."""
         # Bold for first sentence (lede)
-        self.preview_text.tag_configure("lede", font=("TkDefaultFont", 9, "bold"))
+        # lede tag removed — no special formatting for first sentence
 
         # Entity categories (clickable Wikipedia links) — bright for dark bg
         self.highlight_categories = {
@@ -2184,8 +2215,7 @@ class NewsAggregatorApp:
             if char in ".!?" and i > 20:
                 first_sentence_end = i + 1
                 break
-        if first_sentence_end:
-            text_widget.tag_add("lede", "1.0", f"1.{first_sentence_end}")
+        # lede highlighting removed
 
         text_lower = text.lower()
 
@@ -2473,6 +2503,40 @@ class NewsAggregatorApp:
 
     # ── Borderless window methods ──────────────────────────────────
 
+    def _strip_title_bar(self):
+        """Remove native title bar using Win32 API while keeping proper window management."""
+        if sys.platform != "win32":
+            self.root.overrideredirect(True)
+            return
+        try:
+            import ctypes
+            self.root.update_idletasks()
+            hwnd = int(self.root.wm_frame(), 16)
+            self._hwnd = hwnd
+
+            GWL_STYLE = -16
+            WS_CAPTION = 0x00C00000
+            WS_THICKFRAME = 0x00040000
+            WS_SYSMENU = 0x00080000
+            WS_MINIMIZEBOX = 0x00020000
+            WS_VISIBLE = 0x10000000
+            SWP_FRAMECHANGED = 0x0020
+            SWP_NOMOVE = 0x0002
+            SWP_NOSIZE = 0x0001
+            SWP_NOZORDER = 0x0004
+
+            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_STYLE)
+            style = style & ~WS_CAPTION & ~WS_THICKFRAME & ~WS_SYSMENU
+            style = style | WS_MINIMIZEBOX | WS_VISIBLE
+            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_STYLE, style)
+
+            ctypes.windll.user32.SetWindowPos(
+                hwnd, 0, 0, 0, 0, 0,
+                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER
+            )
+        except Exception:
+            self.root.overrideredirect(True)
+
     def _setup_owner_icon(self):
         """Set the taskbar icon on the hidden owner window."""
         try:
@@ -2506,25 +2570,61 @@ class NewsAggregatorApp:
 
     def _on_taskbar_restore(self, event=None):
         """Restore window when taskbar icon is clicked."""
+        self._owner.attributes("-alpha", 0)  # Keep owner invisible
+        self._owner.geometry("1x1+-10000+-10000")
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()
 
     def _start_drag(self, event):
         """Record drag start position."""
-        self._drag_x = event.x_root - self.root.winfo_x()
-        self._drag_y = event.y_root - self.root.winfo_y()
+        self._drag_start_x = event.x_root
+        self._drag_start_y = event.y_root
+        geo = self.root.geometry()
+        import re
+        m = re.match(r'(\d+)x(\d+)\+(-?\d+)\+(-?\d+)', geo)
+        if m:
+            self._drag_win_x = int(m.group(3))
+            self._drag_win_y = int(m.group(4))
+        else:
+            self._drag_win_x = self.root.winfo_x()
+            self._drag_win_y = self.root.winfo_y()
+        self.root.lift()
 
     def _do_drag(self, event):
         """Move window during drag."""
         if self._is_maximized:
             self._toggle_maximize()
-        x = event.x_root - self._drag_x
-        y = event.y_root - self._drag_y
+        dx = event.x_root - self._drag_start_x
+        dy = event.y_root - self._drag_start_y
+        x = self._drag_win_x + dx
+        y = self._drag_win_y + dy
+        # Use Win32 MoveWindow with repaint flag to avoid ghosting
+        if sys.platform == "win32" and hasattr(self, "_hwnd"):
+            try:
+                import ctypes
+                w = self.root.winfo_width()
+                h = self.root.winfo_height()
+                ctypes.windll.user32.MoveWindow(self._hwnd, x, y, w, h, True)
+                return
+            except Exception:
+                pass
         self.root.geometry(f"+{x}+{y}")
+
+    def _end_drag(self, event):
+        """Ensure window stays visible after drag."""
+        self.root.lift()
+        self.root.focus_force()
 
     def _minimize_window(self):
         """Minimize to taskbar."""
+        if sys.platform == "win32" and hasattr(self, "_hwnd"):
+            try:
+                import ctypes
+                ctypes.windll.user32.ShowWindow(self._hwnd, 6)  # SW_MINIMIZE
+                return
+            except Exception:
+                pass
         self.root.withdraw()
         self._owner.iconify()
 
@@ -2536,9 +2636,19 @@ class NewsAggregatorApp:
             self._is_maximized = False
         else:
             self._normal_geometry = self.root.geometry()
-            sw = self.root.winfo_screenwidth()
-            sh = self.root.winfo_screenheight()
-            self.root.geometry(f"{sw}x{sh - 40}+0+0")
+            # Get usable work area (excludes taskbar) via Win32 API
+            try:
+                import ctypes
+                from ctypes import wintypes
+                rect = wintypes.RECT()
+                # SPI_GETWORKAREA = 0x0030
+                ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0)
+                x, y, w, h = rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top
+            except Exception:
+                x, y = 0, 0
+                w = self.root.winfo_screenwidth()
+                h = self.root.winfo_screenheight() - 48
+            self.root.geometry(f"{w}x{h}+{x}+{y}")
             self.max_btn.configure(text="\u25a3")
             self._is_maximized = True
 
@@ -2592,8 +2702,17 @@ class NewsAggregatorApp:
         if self._ticker_running:
             self._ticker_step()
 
-        # Pulsing borders
+        # Glitch effect (overrides pulse)
+        self._animate_glitch()
+
+        # Pulsing borders (skipped during glitch/flash)
         self._pulse_borders()
+
+        # Sash flash
+        self._animate_sash_flash()
+
+        # Feed glows
+        self._animate_feed_glows()
 
         # Title glow
         self._animate_title_glow()
@@ -2603,6 +2722,9 @@ class NewsAggregatorApp:
 
         # Status bar cursor blink + clock
         self._animate_status_bar()
+
+        # Typewriter effect
+        self._animate_typewriter()
 
         self._anim_id = self.root.after(33, self._anim_tick)
 
@@ -2617,6 +2739,8 @@ class NewsAggregatorApp:
 
     def _pulse_borders(self):
         """Animate panel borders with sine-wave pulsing at different intervals."""
+        if self._glitch_active or self._sash_flash_active:
+            return
         for widget, color_key, period in self._neon_panels:
             t_val = (math.sin(self._anim_frame * (2 * math.pi / period)) + 1) / 2
             bright = DARK_THEME[color_key]
@@ -2670,6 +2794,219 @@ class NewsAggregatorApp:
         if self._anim_frame % 30 == 0:
             now = datetime.now().strftime("%H:%M:%S")
             self._clock_label.configure(text=now)
+
+    # ── Hover glow (Feature 3) ────────────────────────────────
+
+    def _on_article_hover(self, event):
+        """Apply hover highlight to article row under cursor."""
+        item = self.articles_tree.identify_row(event.y)
+        if item == self._hover_item:
+            return
+        if self._hover_item:
+            try:
+                tags = list(self.articles_tree.item(self._hover_item, "tags") or ())
+                if "hover" in tags:
+                    tags.remove("hover")
+                    self.articles_tree.item(self._hover_item, tags=tags)
+            except tk.TclError:
+                pass
+        self._hover_item = item
+        if item:
+            try:
+                tags = list(self.articles_tree.item(item, "tags") or ())
+                if "hover" not in tags:
+                    tags.append("hover")
+                    self.articles_tree.item(item, tags=tags)
+            except tk.TclError:
+                pass
+
+    def _on_article_leave(self, event):
+        """Clear hover when mouse leaves articles tree."""
+        if self._hover_item:
+            try:
+                tags = list(self.articles_tree.item(self._hover_item, "tags") or ())
+                if "hover" in tags:
+                    tags.remove("hover")
+                    self.articles_tree.item(self._hover_item, tags=tags)
+            except tk.TclError:
+                pass
+            self._hover_item = None
+
+    # ── Glitch effect (Feature 1) ─────────────────────────────
+
+    def _start_glitch(self):
+        """Activate glitch effect on refresh start."""
+        self._glitch_active = True
+        self._glitch_end_frame = (self._anim_frame + 8) % 3600
+        self._glitch_sequence = ["#00ffff", "#ff00ff", "#ffffff", "#00ffff", "#ff00ff", "#ffffff", "#00ffff", "#ff00ff"]
+        self._glitch_step = 0
+
+    def _animate_glitch(self):
+        """Flash panel borders through a fixed neon sequence."""
+        if not self._glitch_active:
+            return
+        if self._anim_frame == self._glitch_end_frame:
+            self._glitch_active = False
+            return
+        color = self._glitch_sequence[self._glitch_step % len(self._glitch_sequence)]
+        self._glitch_step += 1
+        for widget, _, _ in self._neon_panels:
+            widget.configure(highlightbackground=color)
+
+    # ── Sash flash (Feature 4) ────────────────────────────────
+
+    def _on_sash_press(self, event):
+        """Detect if press is on a PanedWindow sash."""
+        try:
+            result = str(event.widget.identify(event.x, event.y))
+            self._sash_dragging = "sash" in result or "separator" in result
+        except Exception:
+            # Fallback: check if click is near a sash coordinate
+            try:
+                paned = event.widget
+                for i in range(len(paned.panes()) - 1):
+                    sx, sy = paned.sash_coord(i)
+                    orient = str(paned.cget("orient"))
+                    if orient == "horizontal":
+                        if abs(event.y - sy) < 8:
+                            self._sash_dragging = True
+                            return
+                    else:
+                        if abs(event.x - sx) < 8:
+                            self._sash_dragging = True
+                            return
+            except Exception:
+                pass
+            self._sash_dragging = False
+
+    def _on_sash_release(self, event):
+        """Trigger border flash on sash release."""
+        if self._sash_dragging:
+            self._sash_flash_active = True
+            self._sash_flash_end_frame = (self._anim_frame + 10) % 3600
+            self._sash_dragging = False
+
+    def _animate_sash_flash(self):
+        """Fade panel borders from white back to normal after sash release."""
+        if not self._sash_flash_active:
+            return
+        remaining = (self._sash_flash_end_frame - self._anim_frame) % 3600
+        if remaining > 10 or remaining == 0:
+            self._sash_flash_active = False
+            return
+        t = remaining / 10.0
+        flash_color = self._lerp_color(DARK_THEME["cyan"], "#ffffff", t)
+        for widget, _, _ in self._neon_panels:
+            widget.configure(highlightbackground=flash_color)
+
+    # ── Feed glow (Feature 2) ─────────────────────────────────
+
+    def _snapshot_feed_counts(self):
+        """Capture unread counts before refresh to detect new articles."""
+        feeds = self.storage.get_feeds()
+        self._pre_refresh_counts = {
+            feed["id"]: self.storage.get_article_count(feed["id"], unread_only=True)
+            for feed in feeds
+        }
+
+    def _detect_new_article_feeds(self):
+        """Start glow on feeds that received new articles."""
+        feeds = self.storage.get_feeds()
+        for feed in feeds:
+            old_count = self._pre_refresh_counts.get(feed["id"], 0)
+            new_count = self.storage.get_article_count(feed["id"], unread_only=True)
+            if new_count > old_count:
+                iid = f"feed_{feed['id']}"
+                self._glowing_feeds[iid] = (self._anim_frame + 90) % 3600
+
+    def _animate_feed_glows(self):
+        """Pulse foreground color of feeds with new articles."""
+        if not self._glowing_feeds:
+            return
+        expired = []
+        t_val = (math.sin(self._anim_frame * (2 * math.pi / 60)) + 1) / 2
+        color = self._lerp_color(DARK_THEME["cyan_dim"], DARK_THEME["cyan"], t_val)
+        for iid, end_frame in self._glowing_feeds.items():
+            if self._anim_frame == end_frame:
+                expired.append(iid)
+                continue
+            try:
+                tag_name = f"glow_{iid}"
+                self.feeds_tree.tag_configure(tag_name, foreground=color)
+                current_tags = list(self.feeds_tree.item(iid, "tags") or ())
+                if tag_name not in current_tags:
+                    current_tags.append(tag_name)
+                    self.feeds_tree.item(iid, tags=current_tags)
+            except tk.TclError:
+                expired.append(iid)
+        for iid in expired:
+            del self._glowing_feeds[iid]
+            try:
+                tag_name = f"glow_{iid}"
+                current_tags = list(self.feeds_tree.item(iid, "tags") or ())
+                if tag_name in current_tags:
+                    current_tags.remove(tag_name)
+                    self.feeds_tree.item(iid, tags=current_tags)
+            except tk.TclError:
+                pass
+
+    # ── Typewriter effect (Feature 5) ─────────────────────────
+
+    def _start_typewriter(self, text, article_id):
+        """Begin typewriter animation for article preview."""
+        self._cancel_typewriter()
+        self._typewriter_active = True
+        self._typewriter_full_text = text
+        self._typewriter_words = text.split(" ")
+        self._typewriter_pos = 0
+        self._typewriter_article_id = article_id
+
+    def _cancel_typewriter(self):
+        """Cancel in-progress typewriter animation."""
+        self._typewriter_active = False
+        self._typewriter_words = []
+        self._typewriter_pos = 0
+        self._typewriter_article_id = None
+        self._typewriter_pending_highlight = False
+        self._typewriter_full_text = ""
+
+    def _animate_typewriter(self):
+        """Insert next chunk of words into preview with live highlighting."""
+        if not self._typewriter_active:
+            return
+        if self.selected_article_id != self._typewriter_article_id:
+            self._cancel_typewriter()
+            return
+        if self._typewriter_pos >= len(self._typewriter_words):
+            self._finish_typewriter()
+            return
+        end_pos = min(self._typewriter_pos + self._typewriter_chunk_size,
+                      len(self._typewriter_words))
+        self._typewriter_pos = end_pos
+        # Rebuild text from words typed so far, apply full highlighting
+        partial_text = " ".join(self._typewriter_words[:self._typewriter_pos])
+        self.preview_text.configure(state=tk.NORMAL)
+        self.preview_text.delete("1.0", tk.END)
+        self._apply_highlighting(self.preview_text, partial_text)
+        self.preview_text.configure(state=tk.DISABLED)
+        self.preview_text.see(tk.END)
+
+    def _finish_typewriter(self):
+        """Finalize typewriter — add related articles."""
+        self._typewriter_active = False
+        # Related articles
+        article_id = self._typewriter_article_id
+        if hasattr(self, "cluster_map") and article_id in self.cluster_map:
+            cluster = self.cluster_map[article_id]
+            if cluster["count"] > 1:
+                self.preview_text.configure(state=tk.NORMAL)
+                self.preview_text.insert(tk.END, "\n\n─── RELATED ARTICLES ───\n\n")
+                for related in cluster["articles"][1:]:
+                    source = related.get("feed_name", "Unknown")
+                    score = related.get("noise_score", 0)
+                    self.preview_text.insert(tk.END, f"  [{source}] {related['title']} ({score})\n")
+                self.preview_text.configure(state=tk.DISABLED)
+        self._typewriter_article_id = None
 
     # ── Boot sequence ───────────────────────────────────────────
 

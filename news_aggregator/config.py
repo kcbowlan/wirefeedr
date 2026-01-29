@@ -1,24 +1,31 @@
 # config.py - Default settings and sources
 
-# Dark mode color palette (cyberpunk aesthetic)
+# Dark mode color palette (cyberpunk aesthetic) - NEON OVERDRIVE
 DARK_THEME = {
-    # Backgrounds - layered depth
-    "bg": "#05050a",               # Deepest background (near black)
-    "bg_secondary": "#0a0a12",     # Panel backgrounds
-    "bg_tertiary": "#10101a",      # Lists, inputs
-    "bg_toolbar": "#0d0d18",       # Toolbar background
+    # Backgrounds - deep void black for maximum neon contrast
+    "bg": "#020206",               # Void black (deeper)
+    "bg_secondary": "#06060c",     # Panel backgrounds (darker)
+    "bg_tertiary": "#0a0a14",      # Lists, inputs
+    "bg_toolbar": "#08080f",       # Toolbar background
 
     # Text
-    "fg": "#e8e8e8",               # Primary text (bright white)
-    "fg_secondary": "#6a7080",     # Muted text
+    "fg": "#f0f0f0",               # Primary text (brighter white)
+    "fg_secondary": "#7080a0",     # Muted text (slightly bluer)
     "fg_highlight": "#ffffff",     # Highlighted text
 
-    # Neon accents
-    "cyan": "#00ffff",             # Neon cyan
-    "cyan_dim": "#004d4d",         # Dim cyan (for animation low point)
-    "magenta": "#ff00ff",          # Neon magenta/pink
-    "magenta_dim": "#4d004d",      # Dim magenta (for animation low point)
-    "pink": "#ff1493",             # Hot pink (softer magenta)
+    # Neon accents - MAXIMUM SATURATION
+    "cyan": "#00ffff",             # Pure neon cyan
+    "cyan_bright": "#40ffff",      # Brighter cyan (for highlights)
+    "cyan_dim": "#006666",         # Dim cyan (for animation low point)
+    "magenta": "#ff00ff",          # Pure neon magenta
+    "magenta_bright": "#ff40ff",   # Brighter magenta
+    "magenta_dim": "#660066",      # Dim magenta (for animation low point)
+    "pink": "#ff1493",             # Hot pink
+    "neon_green": "#39ff14",       # Electric green
+    "neon_orange": "#ff6600",      # Neon orange
+    "neon_yellow": "#ffff00",      # Electric yellow
+    "neon_purple": "#bf00ff",      # Neon purple
+    "neon_red": "#ff073a",         # Neon red
 
     # Functional colors
     "accent": "#00ffff",           # Primary accent (cyan)
@@ -32,11 +39,11 @@ DARK_THEME = {
     "heading_cyan": "#00ffff",     # Cyan headings
     "heading_magenta": "#ff00ff",  # Magenta headings
     "button_hover": "#ff00ff",     # Button hover (magenta)
-    "status_bg": "#08080f",        # Status bar background
+    "status_bg": "#04040a",        # Status bar background (darker)
 
     # Row striping
-    "row_even": "#10101a",         # Even rows (slightly lighter)
-    "row_odd": "#0a0a12",          # Odd rows (base)
+    "row_even": "#0c0c16",         # Even rows
+    "row_odd": "#06060c",          # Odd rows (base)
 }
 
 # Bias ratings: Center, Lean Left, Lean Right, Left, Right, Left-Center, Right-Center
@@ -235,8 +242,8 @@ ARTICLE_GRADES = [
 # Application settings
 DEFAULT_SETTINGS = {
     "min_score_threshold": 70,  # Hide articles with objectivity score below this
-    "auto_refresh_minutes": 180,
-    "article_retention_days": 7,
+    "auto_refresh_minutes": 60,
+    "article_retention_days": 2,  # 48 hours
     "max_articles_per_feed": 50,
     "show_read_articles": True,
     "recency_hours": 24,  # Only show articles from last N hours (0 = no limit)

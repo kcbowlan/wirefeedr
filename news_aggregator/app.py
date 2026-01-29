@@ -12,6 +12,14 @@ import math
 import random
 import sys
 import os
+import socket
+
+# Sound support (Windows)
+try:
+    import winsound
+    HAS_WINSOUND = True
+except ImportError:
+    HAS_WINSOUND = False
 
 from storage import Storage
 from feeds import FeedManager
@@ -110,6 +118,136 @@ class NewsAggregatorApp:
         self._typewriter_pending_highlight = False
         self._typewriter_full_text = ""
 
+        # Idle status cycling (cyberpunk terminal messages)
+        self._idle_messages = [
+            # System operations
+            "RETICULATING SPLINES",
+            "DEFRAGMENTING NEURAL CACHE",
+            "CALIBRATING BIAS MATRIX",
+            "POLLING DEAD DROPS",
+            "DECRYPTING FEED VECTORS",
+            "SYNCHRONIZING REALITY ANCHORS",
+            "COMPILING TRUTH ALGORITHMS",
+            "SCANNING MEMETIC SIGNATURES",
+            "BOOTSTRAPPING INFERENCE ENGINE",
+            "VALIDATING SOURCE INTEGRITY",
+            "CROSS-REFERENCING NARRATIVE THREADS",
+            "PARSING PROPAGANDA RESIDUE",
+            "INITIALIZING FACT-CHECK DAEMON",
+            "PURGING CLICKBAIT BUFFERS",
+            "ESTABLISHING SECURE CHANNEL",
+            "RUNNING SENTIMENT ANALYSIS",
+            "QUERYING ORACLE DATABASE",
+            "HARMONIZING DATA STREAMS",
+            "ENGAGING FILTER PROTOCOLS",
+            "MONITORING INFO-SPHERE",
+            "TRIANGULATING SIGNAL ORIGIN",
+            "DECOMPILING SPIN MATRICES",
+            "ALLOCATING SKEPTICISM UNITS",
+            "CHARGING CRITICAL THINKING CAPACITORS",
+            "LOADING CYNICISM MODULES",
+            "VERIFYING CHAIN OF CUSTODY",
+            "AUDITING TRUST LEDGER",
+            "REFRESHING WORLDVIEW CACHE",
+            "INDEXING CURRENT EVENTS",
+            "PROCESSING ZEITGEIST TELEMETRY",
+            "AWAITING SIGNAL",
+            "STANDING BY",
+            # Network operations
+            "PINGING SHADOW SERVERS",
+            "ROUTING THROUGH PROXY MESH",
+            "HANDSHAKING WITH NODE CLUSTER",
+            "TUNNELING ENCRYPTED PACKETS",
+            "MAPPING NETWORK TOPOLOGY",
+            "NEGOTIATING BANDWIDTH ALLOCATION",
+            "RESOLVING DNS ANOMALIES",
+            "AUTHENTICATING PEER CONNECTIONS",
+            "LOAD BALANCING DATA STREAMS",
+            "CACHING FREQUENTLY ACCESSED NODES",
+            # Data processing
+            "NORMALIZING INPUT VECTORS",
+            "TOKENIZING HEADLINE CORPUS",
+            "STEMMING LEXICAL ROOTS",
+            "APPLYING BLOOM FILTERS",
+            "HASHING CONTENT SIGNATURES",
+            "DEDUPLICATING ARTICLE QUEUE",
+            "COMPRESSING ARCHIVE SEGMENTS",
+            "SERIALIZING STATE OBJECTS",
+            "GARBAGE COLLECTING OLD REFS",
+            "OPTIMIZING QUERY PLANS",
+            # Analysis operations
+            "TRAINING CLASSIFIER WEIGHTS",
+            "EVALUATING MODEL ACCURACY",
+            "COMPUTING FEATURE VECTORS",
+            "CLUSTERING TOPIC GROUPS",
+            "RANKING BY RELEVANCE SCORE",
+            "DETECTING ANOMALY PATTERNS",
+            "PROFILING SOURCE BEHAVIOR",
+            "MEASURING ENTROPY LEVELS",
+            "CALCULATING TRUST SCORES",
+            "BENCHMARKING THROUGHPUT",
+            # Security operations
+            "ROTATING ENCRYPTION KEYS",
+            "SCANNING FOR INTRUSIONS",
+            "VALIDATING CERTIFICATE CHAIN",
+            "HARDENING FIREWALL RULES",
+            "SANITIZING USER INPUT",
+            "OBFUSCATING TRAFFIC PATTERNS",
+            "AUDITING ACCESS LOGS",
+            "PATCHING KNOWN VULNERABILITIES",
+            "ENFORCING RATE LIMITS",
+            "QUARANTINING SUSPECT PAYLOADS",
+            # Cyberpunk flavor
+            "JACKING INTO THE MATRIX",
+            "GHOSTING THROUGH ICE",
+            "FLATLINE RECOVERY PROTOCOL",
+            "DUMPING CYBERSPACE COORDS",
+            "TRACING BLACK ICE SIGNATURE",
+            "UPLOADING CONSCIOUSNESS BACKUP",
+            "DECKING THE MAINFRAME",
+            "PARSING WETWARE SIGNALS",
+            "OVERCLOCKING NEURAL LINK",
+            "STABILIZING MEAT-MACHINE INTERFACE",
+            "FRAGMENTING DIGITAL PERSONA",
+            "REROUTING THROUGH CHIBA CITY",
+            "SCANNING FOR RAZORGIRLS",
+            "CONSULTING STREET SAMURAI DB",
+            "BOOTING ICEBREAKER SUITE",
+            "INJECTING COMBAT DRUGS",
+            "CALIBRATING TARGETING RETICLE",
+            "MONITORING MEGACORP CHATTER",
+            "INTERCEPTING ZAIBATSU COMMS",
+            "DECRYPTING YAKUZA PROTOCOLS",
+            # Misc technical
+            "SPINNING UP WORKER THREADS",
+            "FLUSHING MEMORY BUFFERS",
+            "REBUILDING SEARCH INDEX",
+            "MIGRATING SCHEMA VERSION",
+            "REBALANCING SHARD DISTRIBUTION",
+            "WARMING PREDICTION CACHE",
+            "SNAPSHOTTING SYSTEM STATE",
+            "REPLAYING EVENT LOG",
+            "MERGING CONFLICT BRANCHES",
+            "ROLLING BACK FAILED TRANSACTION",
+            # Status messages
+            "ALL SYSTEMS NOMINAL",
+            "OPERATING WITHIN PARAMETERS",
+            "MAINTAINING VIGILANCE",
+            "SIGNAL STRENGTH OPTIMAL",
+            "FEED INTEGRITY VERIFIED",
+            "NO ANOMALIES DETECTED",
+            "READY FOR INPUT",
+            "CHANNELS CLEAR",
+            "HOLDING PATTERN",
+            "MONITORING ACTIVE",
+        ]
+        self._idle_active = True
+        self._idle_message_index = 0
+        self._idle_char_pos = 0
+        self._idle_display_frames = 0  # How long to show completed message
+        self._idle_last_real_status = ""
+        self._idle_pause_until = 0  # Frame to resume idle cycling
+
         # Build UI
         self._setup_styles()
         self._build_title_bar()
@@ -117,8 +255,8 @@ class NewsAggregatorApp:
         self._bind_shortcuts()
         self._build_toolbar()
         self._build_ticker()
+        self._build_status_bar()  # Pack BOTTOM elements first so they survive resize
         self._build_main_layout()
-        self._build_status_bar()
         self._build_resize_grip()
         # Corner decorations removed — overlapped with content
 
@@ -133,6 +271,9 @@ class NewsAggregatorApp:
         # Load initial data
         self.refresh_feeds_list()
         self.refresh_articles()
+
+        # Cleanup old articles if 48+ hours since last cleanup
+        self._auto_cleanup_old_articles()
 
         # Start auto-refresh if enabled
         self._schedule_auto_refresh()
@@ -209,12 +350,19 @@ class NewsAggregatorApp:
         # Separator
         style.configure("TSeparator", background=t["cyan_dim"])
 
-        # Scrollbar
-        style.configure("TScrollbar", background=t["bg_secondary"], troughcolor=t["bg"],
-                         arrowcolor=t["cyan"])
+        # Scrollbar - NEON CYBERPUNK
+        style.configure("TScrollbar",
+                        background=t["cyan"],           # Thumb is bright cyan
+                        troughcolor=t["bg"],            # Deep void trough
+                        arrowcolor=t["cyan_bright"],    # Bright arrows
+                        bordercolor=t["cyan_dim"],      # Subtle border
+                        lightcolor=t["cyan"],           # 3D highlight
+                        darkcolor=t["cyan_dim"])        # 3D shadow
         style.map("TScrollbar",
-                  background=[("active", t["magenta"]), ("pressed", t["magenta_dim"])],
-                  arrowcolor=[("active", t["magenta"])])
+                  background=[("active", t["magenta"]), ("pressed", t["magenta_bright"]),
+                              ("disabled", t["bg_secondary"])],
+                  arrowcolor=[("active", t["magenta_bright"]), ("pressed", t["magenta"]),
+                              ("disabled", t["fg_secondary"])])
 
         # Menubutton
         style.configure("TMenubutton", background=t["bg_tertiary"], foreground=t["cyan"])
@@ -240,111 +388,28 @@ class NewsAggregatorApp:
         self.root.option_add("*TCombobox*Listbox.selectForeground", t["fg_highlight"])
 
     def _build_title_bar(self):
-        """Build custom cyberpunk title bar with branding and menus."""
+        """Build neon border frame around entire window."""
+        self.max_btn = None
+        self.title_bar = None
         t = DARK_THEME
 
-        # Title bar frame - 32px tall
-        self.title_bar = tk.Frame(self.root, bg=t["bg_secondary"], height=32)
-        self.title_bar.pack(side=tk.TOP, fill=tk.X)
-        self.title_bar.pack_propagate(False)
+        # Create border canvases (top, bottom, left, right)
+        border_thickness = 2
 
-        # Left side: Logo + branding
-        logo_frame = tk.Frame(self.title_bar, bg=t["bg_secondary"])
-        logo_frame.pack(side=tk.LEFT, padx=(8, 0))
+        self._border_top = tk.Canvas(self.root, height=border_thickness, bg=t["bg"], highlightthickness=0)
+        self._border_top.pack(side=tk.TOP, fill=tk.X)
 
-        # Load LOGO.png
-        try:
-            logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "LOGO.png")
-            self._logo_image = tk.PhotoImage(file=logo_path)
-            w, h = self._logo_image.width(), self._logo_image.height()
-            if h > 24:
-                factor = max(1, h // 24)
-                self._logo_image = self._logo_image.subsample(factor, factor)
-            logo_label = tk.Label(logo_frame, image=self._logo_image, bg=t["bg_secondary"])
-            logo_label.pack(side=tk.LEFT, padx=(0, 6))
-            logo_label.bind("<Button-1>", self._start_drag)
-            logo_label.bind("<B1-Motion>", self._do_drag)
-        except Exception:
-            pass
+        self._border_bottom = tk.Canvas(self.root, height=border_thickness, bg=t["bg"], highlightthickness=0)
+        self._border_bottom.pack(side=tk.BOTTOM, fill=tk.X)
 
-        # App title with neon glow effect
-        self.title_label = tk.Label(
-            logo_frame, text="WIREFEEDR",
-            bg=t["bg_secondary"], fg=t["cyan"],
-            font=("Consolas", 14, "bold")
-        )
-        self.title_label.pack(side=tk.LEFT)
+        self._border_left = tk.Canvas(self.root, width=border_thickness, bg=t["bg"], highlightthickness=0)
+        self._border_left.pack(side=tk.LEFT, fill=tk.Y)
 
-        # Version subtitle
-        tk.Label(
-            logo_frame, text="v1.8",
-            bg=t["bg_secondary"], fg=t["fg_secondary"],
-            font=("Consolas", 8)
-        ).pack(side=tk.LEFT, padx=(4, 0), pady=(6, 0))
+        self._border_right = tk.Canvas(self.root, width=border_thickness, bg=t["bg"], highlightthickness=0)
+        self._border_right.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # Right side: Window control buttons
-        ctrl_frame = tk.Frame(self.title_bar, bg=t["bg_secondary"])
-        ctrl_frame.pack(side=tk.RIGHT)
-
-        btn_style = dict(
-            bg=t["bg_secondary"], fg=t["fg"],
-            font=("Segoe UI Symbol", 11), bd=0, padx=10, pady=2,
-            activebackground=t["bg_tertiary"], activeforeground=t["fg_highlight"],
-            width=3
-        )
-
-        # Minimize  (U+2012 figure dash - thin horizontal line)
-        min_btn = tk.Button(ctrl_frame, text="\u2012", command=self._minimize_window, **btn_style)
-        min_btn.pack(side=tk.LEFT, padx=(0, 1))
-        min_btn.bind("<Enter>", lambda e: e.widget.configure(bg=t["cyan_dim"], fg=t["cyan"]))
-        min_btn.bind("<Leave>", lambda e: e.widget.configure(bg=t["bg_secondary"], fg=t["fg"]))
-
-        # Maximize/Restore (U+25FB white medium square)
-        self.max_btn = tk.Button(ctrl_frame, text="\u25fb", command=self._toggle_maximize, **btn_style)
-        self.max_btn.pack(side=tk.LEFT, padx=(0, 1))
-        self.max_btn.bind("<Enter>", lambda e: e.widget.configure(bg=t["cyan_dim"], fg=t["cyan"]))
-        self.max_btn.bind("<Leave>", lambda e: e.widget.configure(bg=t["bg_secondary"], fg=t["fg"]))
-
-        # Close (U+2715 multiplication x) — separated from other buttons
-        close_btn = tk.Button(ctrl_frame, text="\u2715", command=self._on_close, **btn_style)
-        close_btn.pack(side=tk.LEFT, padx=(4, 2))
-        close_btn.bind("<Enter>", lambda e: e.widget.configure(bg="#cc0000", fg="#ffffff"))
-        close_btn.bind("<Leave>", lambda e: e.widget.configure(bg=t["bg_secondary"], fg=t["fg"]))
-
-        # Menu buttons in title bar
-        menu_frame = tk.Frame(self.title_bar, bg=t["bg_secondary"])
-        menu_frame.pack(side=tk.LEFT, padx=(20, 0))
-
-        menu_items = [
-            ("FILE", self._show_file_menu),
-            ("FEEDS", self._show_feeds_menu),
-            ("ARTICLES", self._show_articles_menu),
-            ("SETTINGS", self._show_settings_menu),
-        ]
-
-        for label, cmd in menu_items:
-            btn = tk.Label(
-                menu_frame, text=label,
-                bg=t["bg_secondary"], fg=t["fg_secondary"],
-                font=("Consolas", 9), padx=10, pady=6, cursor="hand2"
-            )
-            btn.pack(side=tk.LEFT)
-            btn.bind("<Button-1>", lambda e, c=cmd: c(e))
-            btn.bind("<Enter>", lambda e: e.widget.configure(fg=t["cyan"]))
-            btn.bind("<Leave>", lambda e: e.widget.configure(fg=t["fg_secondary"]))
-
-        # Drag handling on title bar
-        for widget in [self.title_bar, self.title_label, logo_frame]:
-            widget.bind("<Button-1>", self._start_drag)
-            widget.bind("<B1-Motion>", self._do_drag)
-            widget.bind("<ButtonRelease-1>", self._end_drag)
-            widget.bind("<Double-1>", lambda e: self._toggle_maximize())
-
-        # Neon line under title bar
-        self.title_neon_line = tk.Canvas(
-            self.root, height=2, bg=DARK_THEME["bg"], highlightthickness=0
-        )
-        self.title_neon_line.pack(side=tk.TOP, fill=tk.X)
+        # For compatibility with existing code
+        self.title_neon_line = self._border_top
 
     def _build_menus(self):
         """Pre-build popup menus for the custom title bar."""
@@ -352,34 +417,52 @@ class NewsAggregatorApp:
                   activebackground=DARK_THEME["magenta"],
                   activeforeground=DARK_THEME["fg_highlight"], tearoff=0)
 
-        self._file_menu = tk.Menu(self.root, **_m)
-        self._file_menu.add_command(label="Refresh All Feeds", command=self.fetch_all_feeds, accelerator="F5")
-        self._file_menu.add_separator()
-        self._file_menu.add_command(label="Exit", command=self._on_close)
-
-        self._feeds_menu = tk.Menu(self.root, **_m)
-        self._feeds_menu.add_command(label="Add Feed...", command=self.show_add_feed_dialog)
-        self._feeds_menu.add_command(label="Manage Feeds...", command=self.show_manage_feeds_dialog)
-
-        self._articles_menu = tk.Menu(self.root, **_m)
-        self._articles_menu.add_command(label="Mark All as Read", command=self.mark_all_read)
-        self._articles_menu.add_separator()
-        self._articles_menu.add_command(label="Delete Old Articles...", command=self.show_delete_old_dialog)
-
+        # Settings menu (consolidated)
         self._settings_menu = tk.Menu(self.root, **_m)
+
+        # Feeds submenu
+        self._feeds_submenu = tk.Menu(self._settings_menu, **_m)
+        self._feeds_submenu.add_command(label="Add Feed...", command=self.show_add_feed_dialog)
+        self._feeds_submenu.add_command(label="Manage Feeds...", command=self.show_manage_feeds_dialog)
+        self._settings_menu.add_cascade(label="Feeds", menu=self._feeds_submenu)
+
+        # Articles submenu
+        self._articles_submenu = tk.Menu(self._settings_menu, **_m)
+        self._articles_submenu.add_command(label="Mark All as Read", command=self.mark_all_read)
+        self._articles_submenu.add_command(label="Delete Old Articles...", command=self.show_delete_old_dialog)
+        self._settings_menu.add_cascade(label="Articles", menu=self._articles_submenu)
+
+        self._settings_menu.add_separator()
+
+        # Recency submenu
+        self._recency_submenu = tk.Menu(self._settings_menu, **_m)
+        self._recency_var = tk.StringVar(value=self.storage.get_setting("recency_hours", "24"))
+        for label, value in [("6 hours", "6"), ("12 hours", "12"), ("24 hours", "24"),
+                             ("48 hours", "48"), ("1 week", "168"), ("All time", "0")]:
+            self._recency_submenu.add_radiobutton(
+                label=label, variable=self._recency_var, value=value,
+                command=lambda v=value: self._set_recency(v))
+        self._settings_menu.add_cascade(label="Recency", menu=self._recency_submenu)
+
+        # Per Source submenu
+        self._per_source_submenu = tk.Menu(self._settings_menu, **_m)
+        self._per_source_var = tk.StringVar(value=self.storage.get_setting("max_per_source", "10"))
+        for label, value in [("5 per source", "5"), ("10 per source", "10"), ("15 per source", "15"),
+                             ("20 per source", "20"), ("No limit", "0")]:
+            self._per_source_submenu.add_radiobutton(
+                label=label, variable=self._per_source_var, value=value,
+                command=lambda v=value: self._set_per_source(v))
+        self._settings_menu.add_cascade(label="Per Source", menu=self._per_source_submenu)
+
+        # Cluster toggle
+        self._cluster_var = tk.BooleanVar(value=self.storage.get_setting("cluster_topics", "True") == "True")
+        self._settings_menu.add_checkbutton(label="Cluster Topics", variable=self._cluster_var,
+                                            command=self._on_cluster_toggle)
+
+        self._settings_menu.add_separator()
         self._settings_menu.add_command(label="Filter Keywords...", command=self.show_filter_keywords_dialog)
-
-    def _show_file_menu(self, event):
-        self._file_menu.tk_popup(event.widget.winfo_rootx(),
-                                  event.widget.winfo_rooty() + event.widget.winfo_height())
-
-    def _show_feeds_menu(self, event):
-        self._feeds_menu.tk_popup(event.widget.winfo_rootx(),
-                                   event.widget.winfo_rooty() + event.widget.winfo_height())
-
-    def _show_articles_menu(self, event):
-        self._articles_menu.tk_popup(event.widget.winfo_rootx(),
-                                      event.widget.winfo_rooty() + event.widget.winfo_height())
+        self._settings_menu.add_separator()
+        self._settings_menu.add_command(label="Exit", command=self._on_close)
 
     def _show_settings_menu(self, event):
         self._settings_menu.tk_popup(event.widget.winfo_rootx(),
@@ -388,8 +471,7 @@ class NewsAggregatorApp:
     def _bind_shortcuts(self):
         """Bind keyboard shortcuts."""
         self.root.bind("<F5>", lambda e: self.fetch_all_feeds())
-        self.root.bind("<Up>", self._on_key_up)
-        self.root.bind("<Down>", self._on_key_down)
+        # Note: Up/Down arrow bindings moved to articles_tree in _build_main_layout
         self.root.bind("<Return>", lambda e: self.open_in_browser())
         self.root.bind("m", self._on_key_toggle_read)
         self.root.bind("M", self._on_key_toggle_read)
@@ -397,9 +479,16 @@ class NewsAggregatorApp:
         self.root.bind("H", self._on_key_hide)
 
     def _build_toolbar(self):
-        """Build the toolbar."""
-        toolbar = ttk.Frame(self.root)
-        toolbar.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
+        """Build the toolbar (also serves as drag handle for borderless window)."""
+        self.toolbar = tk.Frame(self.root, bg=DARK_THEME["bg_secondary"])
+        toolbar = self.toolbar
+        toolbar.pack(side=tk.TOP, fill=tk.X, padx=0, pady=0)
+
+        # Drag bindings for borderless window
+        toolbar.bind("<Button-1>", self._start_drag)
+        toolbar.bind("<B1-Motion>", self._do_drag)
+        toolbar.bind("<ButtonRelease-1>", self._end_drag)
+        toolbar.bind("<Double-1>", lambda e: self._toggle_maximize())
 
         # Refresh button
         self.refresh_btn = ttk.Button(toolbar, text="↻ Refresh", command=self.fetch_all_feeds)
@@ -416,44 +505,56 @@ class NewsAggregatorApp:
         ttk.Checkbutton(toolbar, text="Show Read", variable=self.show_read_var,
                         command=self.refresh_articles).pack(side=tk.LEFT, padx=5)
 
-        # Recency filter dropdown
-        ttk.Label(toolbar, text="Recency:").pack(side=tk.LEFT, padx=(20, 5))
-        self.recency_var = tk.StringVar(value=self.storage.get_setting("recency_hours", "24"))
-        recency_options = [("6h", "6"), ("12h", "12"), ("24h", "24"), ("48h", "48"), ("Week", "168"), ("All", "0")]
-        self.recency_combo = ttk.Combobox(toolbar, textvariable=self.recency_var, width=6, state="readonly",
-                                          values=[opt[0] for opt in recency_options])
-        # Set display value from stored hours
-        recency_map = {"6": "6h", "12": "12h", "24": "24h", "48": "48h", "168": "Week", "0": "All"}
-        self.recency_combo.set(recency_map.get(self.recency_var.get(), "24h"))
-        self.recency_combo.pack(side=tk.LEFT, padx=2)
-        self.recency_combo.bind("<<ComboboxSelected>>", self._on_recency_change)
-        self._recency_options = dict(recency_options)
+        # Window controls (far right)
+        t = DARK_THEME
+        btn_style = dict(
+            bg=t["bg_secondary"], fg=t["fg"],
+            font=("Segoe UI Symbol", 10), bd=0, padx=6, pady=1,
+            activebackground=t["bg_tertiary"], activeforeground=t["fg_highlight"],
+            width=2
+        )
 
-        # Per Source cap dropdown
-        ttk.Label(toolbar, text="Per Source:").pack(side=tk.LEFT, padx=(10, 5))
-        self.per_source_var = tk.StringVar(value=self.storage.get_setting("max_per_source", "10"))
-        per_source_options = [("5", "5"), ("10", "10"), ("15", "15"), ("20", "20"), ("No Limit", "0")]
-        self.per_source_combo = ttk.Combobox(toolbar, textvariable=self.per_source_var, width=8, state="readonly",
-                                              values=[opt[0] for opt in per_source_options])
-        per_source_map = {"5": "5", "10": "10", "15": "15", "20": "20", "0": "No Limit"}
-        self.per_source_combo.set(per_source_map.get(self.per_source_var.get(), "10"))
-        self.per_source_combo.pack(side=tk.LEFT, padx=2)
-        self.per_source_combo.bind("<<ComboboxSelected>>", self._on_per_source_change)
-        self._per_source_options = dict(per_source_options)
+        close_btn = tk.Button(toolbar, text="\u2715", command=self._on_close, **btn_style)
+        close_btn.pack(side=tk.RIGHT, padx=(2, 0))
+        close_btn.bind("<Enter>", lambda e: e.widget.configure(bg="#cc0000", fg="#ffffff"))
+        close_btn.bind("<Leave>", lambda e: e.widget.configure(bg=t["bg_secondary"], fg=t["fg"]))
 
-        # Cluster toggle
-        self.cluster_var = tk.BooleanVar(value=self.storage.get_setting("cluster_topics", "True") == "True")
-        ttk.Checkbutton(toolbar, text="Cluster", variable=self.cluster_var,
-                        command=self._on_cluster_toggle).pack(side=tk.LEFT, padx=(10, 5))
+        self.max_btn = tk.Button(toolbar, text="\u25fb", command=self._toggle_maximize, **btn_style)
+        self.max_btn.pack(side=tk.RIGHT, padx=1)
+        self.max_btn.bind("<Enter>", lambda e: e.widget.configure(bg=t["cyan_dim"], fg=t["cyan"]))
+        self.max_btn.bind("<Leave>", lambda e: e.widget.configure(bg=t["bg_secondary"], fg=t["fg"]))
 
-        # Search
-        ttk.Label(toolbar, text="Search:").pack(side=tk.LEFT, padx=(20, 5))
+        min_btn = tk.Button(toolbar, text="\u2012", command=self._minimize_window, **btn_style)
+        min_btn.pack(side=tk.RIGHT, padx=1)
+        min_btn.bind("<Enter>", lambda e: e.widget.configure(bg=t["cyan_dim"], fg=t["cyan"]))
+        min_btn.bind("<Leave>", lambda e: e.widget.configure(bg=t["bg_secondary"], fg=t["fg"]))
+
+        # Separator before window controls
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.RIGHT, fill=tk.Y, padx=8)
+
+        # Clear button (rightmost before window controls)
+        ttk.Button(toolbar, text="Clear", command=self.clear_search, width=5).pack(side=tk.RIGHT, padx=2)
+
+        # Filter entry
         self.search_var = tk.StringVar()
-        self.search_entry = ttk.Entry(toolbar, textvariable=self.search_var, width=20)
-        self.search_entry.pack(side=tk.LEFT, padx=2)
-        self.search_entry.bind("<Return>", lambda e: self.search_articles())
-        ttk.Button(toolbar, text="Go", command=self.search_articles, width=4).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar, text="Clear", command=self.clear_search, width=5).pack(side=tk.LEFT, padx=2)
+        self.search_var.trace_add("write", self._on_search_changed)
+        self.search_entry = ttk.Entry(toolbar, textvariable=self.search_var, width=25)
+        self.search_entry.pack(side=tk.RIGHT, padx=2)
+        ttk.Label(toolbar, text="Filter:").pack(side=tk.RIGHT, padx=(5, 5))
+
+        # Settings button (left of Filter)
+        self._settings_btn = tk.Label(
+            toolbar, text="⚙ SETTINGS",
+            bg=t["bg_tertiary"], fg=t["cyan"],
+            font=("Consolas", 9), padx=8, pady=2, cursor="hand2"
+        )
+        self._settings_btn.pack(side=tk.RIGHT, padx=(5, 10))
+        self._settings_btn.bind("<Button-1>", self._show_settings_menu)
+        self._settings_btn.bind("<Enter>", lambda e: e.widget.configure(fg=t["magenta"]))
+        self._settings_btn.bind("<Leave>", lambda e: e.widget.configure(fg=t["cyan"]))
+
+        # Separator after left buttons
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.RIGHT, fill=tk.Y, padx=8)
 
     def _build_ticker(self):
         """Build the scrolling ticker tape banner."""
@@ -655,6 +756,36 @@ class NewsAggregatorApp:
         feeds_frame = self.feeds_frame
         self.main_paned.add(feeds_frame, weight=1)
 
+        # Branding at bottom (pack first so it stays at bottom)
+        branding_frame = tk.Frame(feeds_frame, bg=DARK_THEME["bg"])
+        branding_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(5, 0))
+
+        # Load logo
+        try:
+            logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "LOGO.png")
+            self._logo_image = tk.PhotoImage(file=logo_path)
+            w, h = self._logo_image.width(), self._logo_image.height()
+            if h > 20:
+                factor = max(1, h // 20)
+                self._logo_image = self._logo_image.subsample(factor, factor)
+            logo_label = tk.Label(branding_frame, image=self._logo_image, bg=DARK_THEME["bg"])
+            logo_label.pack(side=tk.LEFT, padx=(0, 4))
+        except Exception:
+            pass
+
+        self.title_label = tk.Label(
+            branding_frame, text="WIREFEEDR",
+            bg=DARK_THEME["bg"], fg=DARK_THEME["cyan"],
+            font=("Consolas", 10, "bold")
+        )
+        self.title_label.pack(side=tk.LEFT)
+
+        tk.Label(
+            branding_frame, text="v2.0",
+            bg=DARK_THEME["bg"], fg=DARK_THEME["fg_secondary"],
+            font=("Consolas", 8)
+        ).pack(side=tk.LEFT, padx=(3, 0))
+
         # Feeds treeview
         self.feeds_tree = ttk.Treeview(feeds_frame, selectmode="browse", show="tree")
         self.feeds_tree.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
@@ -712,6 +843,9 @@ class NewsAggregatorApp:
         self.articles_tree.bind("<<TreeviewSelect>>", self._on_article_select)
         self.articles_tree.bind("<Double-1>", self._on_article_double_click)
         self.articles_tree.bind("<Button-3>", self._on_article_right_click)
+        # Arrow key navigation - bound to tree to prevent default double-movement
+        self.articles_tree.bind("<Up>", self._on_key_up)
+        self.articles_tree.bind("<Down>", self._on_key_down)
 
         # Configure tags for read/unread styling
         self.articles_tree.tag_configure("unread", font=("TkDefaultFont", 9, "bold"),
@@ -789,20 +923,21 @@ class NewsAggregatorApp:
         self.preview_meta = ttk.Label(preview_frame, text="", foreground=DARK_THEME["fg_secondary"])
         self.preview_meta.pack(fill=tk.X)
 
-        # Preview text
+        # Preview text with scrollbar (scrollbar must be packed first to appear on right)
+        preview_text_scroll = ttk.Scrollbar(preview_frame, orient=tk.VERTICAL)
+        preview_text_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=5)
+
         self.preview_text = tk.Text(preview_frame, wrap=tk.WORD, height=8, state=tk.DISABLED,
                                      bg=DARK_THEME["bg_tertiary"], fg=DARK_THEME["fg"],
                                      insertbackground=DARK_THEME["cyan"],
-                                     relief=tk.FLAT, padx=10, pady=10)
+                                     relief=tk.FLAT, padx=10, pady=10,
+                                     yscrollcommand=preview_text_scroll.set)
         self.preview_text.pack(fill=tk.BOTH, expand=True, pady=5)
+
+        preview_text_scroll.configure(command=self.preview_text.yview)
 
         # Configure semantic highlighting tags
         self._setup_highlight_tags()
-
-        preview_text_scroll = ttk.Scrollbar(preview_frame, orient=tk.VERTICAL,
-                                             command=self.preview_text.yview)
-        preview_text_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.preview_text.configure(yscrollcommand=preview_text_scroll.set)
 
     def _build_status_bar(self):
         """Build the cyberpunk status bar."""
@@ -811,29 +946,88 @@ class NewsAggregatorApp:
         status_frame.pack(side=tk.BOTTOM, fill=tk.X)
         status_frame.pack_propagate(False)
 
-        # Left: status text
-        self.status_bar = tk.Label(
-            status_frame, text=">> READY", anchor=tk.W,
-            bg=t["status_bg"], fg=t["cyan"],
-            font=("Consolas", 9), padx=8
-        )
-        self.status_bar.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        # Left: Cyberpunk progress bar (segmented blocks with gradient)
+        self._progress_frame = tk.Frame(status_frame, bg=t["status_bg"])
+        self._progress_frame.pack(side=tk.LEFT, padx=(8, 0))
 
-        # Right: blinking cursor block
-        self._cursor_label = tk.Label(
-            status_frame, text="\u2588",
+        # Progress bar canvas (20 segments, wider)
+        self._progress_segments = 20
+        self._progress_seg_width = 12
+        self._progress_seg_height = 12
+        self._progress_gap = 2
+        canvas_width = self._progress_segments * (self._progress_seg_width + self._progress_gap)
+        self._progress_canvas = tk.Canvas(
+            self._progress_frame, width=canvas_width, height=self._progress_seg_height,
+            bg=t["status_bg"], highlightthickness=0
+        )
+        self._progress_canvas.pack(side=tk.LEFT, pady=6)
+
+        # Create segment rectangles
+        self._progress_rects = []
+        for i in range(self._progress_segments):
+            x = i * (self._progress_seg_width + self._progress_gap)
+            rect = self._progress_canvas.create_rectangle(
+                x, 0, x + self._progress_seg_width, self._progress_seg_height,
+                fill=t["bg_tertiary"], outline=""
+            )
+            self._progress_rects.append(rect)
+
+        # Progress percentage label
+        self._progress_label = tk.Label(
+            self._progress_frame, text="",
             bg=t["status_bg"], fg=t["cyan"],
             font=("Consolas", 9)
         )
-        self._cursor_label.pack(side=tk.RIGHT, padx=(0, 8))
+        self._progress_label.pack(side=tk.LEFT, padx=(4, 0))
 
-        # Right: clock
-        self._clock_label = tk.Label(
-            status_frame, text="",
-            bg=t["status_bg"], fg=t["fg_secondary"],
-            font=("Consolas", 9), padx=8
+        # Hide progress bar initially
+        self._progress_frame.pack_forget()
+        self._progress_value = 0
+
+        # Blinking block cursor (pack first so it's on far right)
+        self._cursor_label = tk.Label(
+            status_frame, text="\u2588",
+            bg=t["status_bg"], fg=t["cyan"],
+            font=("Consolas", 12)  # Larger for chunky look
         )
-        self._clock_label.pack(side=tk.RIGHT)
+        self._cursor_label.pack(side=tk.RIGHT, padx=(0, 20))
+
+        # Right-aligned status text (to left of cursor)
+        self.status_bar = tk.Label(
+            status_frame, text="", anchor=tk.E,
+            bg=t["status_bg"], fg=t["cyan"],
+            font=("Consolas", 9)
+        )
+        self.status_bar.pack(side=tk.RIGHT, padx=(8, 0))
+
+    def _show_progress(self):
+        """Show the progress bar."""
+        self._progress_frame.pack(side=tk.LEFT, padx=(8, 0))
+        self._progress_value = 0
+        self._update_progress(0)
+
+    def _hide_progress(self):
+        """Hide the progress bar."""
+        self._progress_frame.pack_forget()
+
+    def _update_progress(self, percent: float):
+        """Update progress bar with gradient fill (magenta -> cyan)."""
+        t = DARK_THEME
+        self._progress_value = percent
+        filled = int((percent / 100) * self._progress_segments)
+
+        for i, rect in enumerate(self._progress_rects):
+            if i < filled:
+                # Gradient from magenta to cyan based on position
+                ratio = i / max(self._progress_segments - 1, 1)
+                color = self._lerp_color(t["magenta"], t["cyan"], ratio)
+                self._progress_canvas.itemconfigure(rect, fill=color)
+            else:
+                # Empty segment
+                self._progress_canvas.itemconfigure(rect, fill=t["bg_tertiary"])
+
+        # Update percentage text
+        self._progress_label.configure(text=f"{int(percent)}%")
 
     # Feed operations
     def _get_favicon_domain(self, feed_url: str) -> str:
@@ -968,14 +1162,10 @@ class NewsAggregatorApp:
 
         include_read = self.show_read_var.get()
 
-        # Get filter values
-        recency_display = self.recency_combo.get()
-        recency_hours = int(self._recency_options.get(recency_display, "24"))
-
-        per_source_display = self.per_source_combo.get()
-        max_per_source = int(self._per_source_options.get(per_source_display, "10"))
-
-        use_clustering = self.cluster_var.get()
+        # Get filter values from settings menu variables
+        recency_hours = int(self._recency_var.get())
+        max_per_source = int(self._per_source_var.get())
+        use_clustering = self._cluster_var.get()
 
         articles = self.storage.get_articles(
             feed_id=self.current_feed_id,
@@ -984,6 +1174,12 @@ class NewsAggregatorApp:
             recency_hours=recency_hours,
             max_per_source=max_per_source
         )
+
+        # Apply real-time search filter
+        search_term = self.search_var.get().strip().lower()
+        if search_term:
+            articles = [a for a in articles if search_term in a.get("title", "").lower()
+                        or search_term in a.get("summary", "").lower()]
 
         # Apply clustering if enabled
         if use_clustering and self.current_feed_id is None:
@@ -995,7 +1191,19 @@ class NewsAggregatorApp:
             self._display_flat_articles(articles)
             self._update_status(f"Showing {len(articles)} articles")
 
+        # Update read counter in articles frame title
+        self._update_read_counter(articles)
+
         self._update_ticker()
+
+    def _update_read_counter(self, articles: list):
+        """Update the articles frame title with read count."""
+        total = len(articles)
+        read = sum(1 for a in articles if a.get("is_read", False))
+        if total > 0:
+            self.articles_frame.configure(text=f" ARTICLES ({read}/{total} READ) ")
+        else:
+            self.articles_frame.configure(text=" ARTICLES ")
 
     def _display_flat_articles(self, articles: list):
         """Display articles without clustering."""
@@ -1063,6 +1271,7 @@ class NewsAggregatorApp:
         self.is_fetching = True
         self.refresh_btn.configure(state=tk.DISABLED)
         self._update_status("Fetching feeds...")
+        self._show_progress()
         self._start_glitch()
         self._snapshot_feed_counts()
 
@@ -1073,8 +1282,10 @@ class NewsAggregatorApp:
             article_count = 0
 
             for i, feed in enumerate(feeds):
-                self.root.after(0, lambda f=feed, idx=i: self._update_status(
-                    f"Fetching {f['name']}... ({idx + 1}/{total})"
+                progress = ((i + 1) / total) * 100
+                self.root.after(0, lambda f=feed, idx=i, p=progress: (
+                    self._update_status(f"Fetching {f['name']}... ({idx + 1}/{total})"),
+                    self._update_progress(p)
                 ))
 
                 result = self.feed_manager.fetch_feed(feed["url"])
@@ -1115,6 +1326,7 @@ class NewsAggregatorApp:
             def finish():
                 self.is_fetching = False
                 self.refresh_btn.configure(state=tk.NORMAL)
+                self._hide_progress()
                 self.refresh_feeds_list()
                 self.refresh_articles()
                 self._detect_new_article_feeds()
@@ -1126,6 +1338,34 @@ class NewsAggregatorApp:
 
         thread = threading.Thread(target=fetch_thread, daemon=True)
         thread.start()
+
+    def _play_cyber_modem_sound(self):
+        """Play a pleasant cyber-modem chirp sound on refresh."""
+        if not HAS_WINSOUND:
+            return
+
+        def play_sound():
+            try:
+                # Pleasant ascending digital chirp sequence
+                # Frequencies chosen for a "data transfer" feel without being harsh
+                tones = [
+                    (800, 30),   # Start tone
+                    (1200, 25),  # Rising
+                    (1600, 20),  # Peak
+                    (1400, 25),  # Slight dip
+                    (1800, 20),  # Higher peak
+                    (2200, 15),  # Quick chirp
+                    (1600, 30),  # Settle
+                    (2000, 20),  # Another chirp
+                    (1200, 40),  # Descend
+                ]
+                for freq, duration in tones:
+                    winsound.Beep(freq, duration)
+            except Exception:
+                pass  # Silently fail if sound doesn't work
+
+        # Play in background thread so it doesn't block UI
+        threading.Thread(target=play_sound, daemon=True).start()
 
     def show_add_feed_dialog(self):
         """Show dialog to add a new feed."""
@@ -1328,7 +1568,7 @@ class NewsAggregatorApp:
         days = simpledialog.askinteger(
             "Delete Old Articles",
             "Delete articles older than how many days?",
-            initialvalue=7,
+            initialvalue=2,
             minvalue=1,
             maxvalue=365
         )
@@ -1337,6 +1577,21 @@ class NewsAggregatorApp:
             self.refresh_feeds_list()
             self.refresh_articles()
             messagebox.showinfo("Done", f"Deleted {count} old articles.")
+
+    def _auto_cleanup_old_articles(self):
+        """Automatically delete old articles every 48 hours."""
+        import time
+        last_cleanup = self.storage.get_setting("last_auto_cleanup", "0")
+        last_cleanup_time = float(last_cleanup)
+        now = time.time()
+        hours_since = (now - last_cleanup_time) / 3600
+
+        if hours_since >= 48:
+            retention_days = int(self.storage.get_setting("article_retention_days", "2"))
+            count = self.storage.delete_old_articles(retention_days)
+            self.storage.set_setting("last_auto_cleanup", str(now))
+            if count > 0:
+                self.update_status(f"Auto-purged {count} old articles")
 
     def show_filter_keywords_dialog(self):
         """Show dialog to manage filter keywords."""
@@ -1506,23 +1761,23 @@ class NewsAggregatorApp:
         self.refresh_articles()
         self._update_status("Article hidden")
 
-    def _on_recency_change(self, event):
-        """Handle recency dropdown change."""
-        display = self.recency_combo.get()
-        hours = self._recency_options.get(display, "24")
+    def _set_recency(self, hours: str):
+        """Handle recency setting change."""
         self.storage.set_setting("recency_hours", hours)
         self.refresh_articles()
 
-    def _on_per_source_change(self, event):
-        """Handle per-source cap dropdown change."""
-        display = self.per_source_combo.get()
-        value = self._per_source_options.get(display, "10")
+    def _set_per_source(self, value: str):
+        """Handle per-source cap setting change."""
         self.storage.set_setting("max_per_source", value)
         self.refresh_articles()
 
     def _on_cluster_toggle(self):
         """Handle cluster checkbox toggle."""
-        self.storage.set_setting("cluster_topics", str(self.cluster_var.get()))
+        self.storage.set_setting("cluster_topics", str(self._cluster_var.get()))
+        self.refresh_articles()
+
+    def _on_search_changed(self, *args):
+        """Handle real-time search filtering."""
         self.refresh_articles()
 
     def _schedule_auto_refresh(self):
@@ -1530,13 +1785,14 @@ class NewsAggregatorApp:
         if self.auto_refresh_job:
             self.root.after_cancel(self.auto_refresh_job)
 
-        minutes = int(self.storage.get_setting("auto_refresh_minutes", "30"))
+        minutes = int(self.storage.get_setting("auto_refresh_minutes", "60"))
         if minutes > 0:
             ms = minutes * 60 * 1000
             self.auto_refresh_job = self.root.after(ms, self._auto_refresh)
 
     def _auto_refresh(self):
         """Perform automatic refresh."""
+        self._auto_cleanup_old_articles()
         if not self.is_fetching:
             self.fetch_all_feeds()
         self._schedule_auto_refresh()
@@ -1556,6 +1812,7 @@ class NewsAggregatorApp:
             "countries": "#ff9d3a",   # Bright Orange
             "places": "#e08850",      # Light Sienna
             "events": "#f0c050",      # Bright Goldenrod
+            "proper_nouns": "#00ffa0", # Electric Mint — unknown proper nouns
         }
 
         # Number categories (not clickable) — bright for dark bg
@@ -1563,8 +1820,28 @@ class NewsAggregatorApp:
             "money": "#ff50a0",       # Bright Pink
             "statistics": "#ff88cc",  # Bright Hot Pink
             "dates": "#ff7098",       # Bright Rose
-            "verbs": "#e8a878",       # Light Coral
             "numbers": "#ffe040",     # Bright Yellow
+        }
+
+        # Verb categories (not clickable) — colors chosen for thematic meaning
+        self.verb_categories = {
+            "verb_communication": "#87ceeb",  # Sky Blue — clear as open air, neutral transmission
+            "verb_accusation": "#dc143c",     # Crimson — blood, anger, pointed finger
+            "verb_support": "#90ee90",        # Light Green — growth, thumbs up, go signal
+            "verb_agreement": "#40e0d0",      # Turquoise — harmony, meeting of waters
+            "verb_decision": "#9370db",       # Medium Purple — royal decree, judge's robe
+            "verb_political": "#8b008b",      # Dark Magenta — imperial purple, power
+            "verb_military": "#8b0000",       # Dark Red — blood of battle, Mars
+            "verb_legal": "#ffd700",          # Gold — scales of justice, law's weight
+            "verb_economic": "#228b22",       # Forest Green — money, wealth, growth
+            "verb_discovery": "#00bfff",      # Deep Sky Blue — eureka, illumination, insight
+            "verb_change": "#ff8c00",         # Dark Orange — autumn leaves, transformation
+            "verb_creation": "#00fa9a",       # Medium Spring Green — new life, genesis
+            "verb_movement": "#b0c4de",       # Light Steel Blue — wind, motion, travel
+            "verb_emotion": "#ff69b4",        # Hot Pink — the heart, passion, feeling
+            "verb_prevention": "#4682b4",     # Steel Blue — shield, barrier, protection
+            "verb_competition": "#ffa500",    # Orange — trophy, medal, fire of competition
+            "verb_medical": "#20b2aa",        # Light Sea Green — clinical, healing, triage
         }
 
         # Configure tags for entities (clickable)
@@ -1579,6 +1856,16 @@ class NewsAggregatorApp:
         # Configure tags for numbers (not clickable)
         for tag, color in self.number_categories.items():
             self.preview_text.tag_configure(tag, foreground=color)
+
+        # Configure tags for verbs (not clickable)
+        for tag, color in self.verb_categories.items():
+            self.preview_text.tag_configure(tag, foreground=color)
+
+        # Related articles section (yellow)
+        self.preview_text.tag_configure("related_header", foreground=DARK_THEME["neon_yellow"], font=("Consolas", 9, "bold"))
+
+        # Store related article targets (populated in _finish_typewriter)
+        self._related_article_targets = {}
 
         # Store wiki link targets: {(start, end): (search_term, category)}
         self.wiki_link_targets = {}
@@ -1662,6 +1949,615 @@ class NewsAggregatorApp:
             "spokesperson", "spokesman", "spokeswoman", "representative",
             "coordinator", "advisor", "adviser", "counsel", "aide",
             "official", "executive", "administrator", "commissioner",
+        }
+
+        # Heads of State & Notable Leaders (current + recent, with name variants)
+        self.leaders = {
+            # === UNITED STATES - PRESIDENTS (All 46) ===
+            "biden", "joe biden", "joseph biden", "president biden", "joseph r biden",
+            "trump", "donald trump", "president trump", "donald j trump",
+            "obama", "barack obama", "president obama", "barack hussein obama",
+            "bush", "george bush", "george w bush", "president bush", "george h w bush", "bush sr", "bush jr",
+            "clinton", "bill clinton", "president clinton", "william clinton",
+            "reagan", "ronald reagan", "president reagan", "the gipper",
+            "carter", "jimmy carter", "president carter", "james earl carter",
+            "nixon", "richard nixon", "president nixon", "tricky dick",
+            "ford", "gerald ford", "president ford",
+            "kennedy", "john f kennedy", "jfk", "president kennedy", "john kennedy", "jack kennedy",
+            "johnson", "lyndon johnson", "lbj", "lyndon b johnson",
+            "eisenhower", "dwight eisenhower", "ike", "dwight d eisenhower",
+            "truman", "harry truman", "president truman", "harry s truman",
+            "roosevelt", "franklin roosevelt", "fdr", "franklin d roosevelt",
+            "theodore roosevelt", "teddy roosevelt", "tr",
+            "hoover", "herbert hoover", "president hoover",
+            "coolidge", "calvin coolidge", "silent cal",
+            "harding", "warren harding", "warren g harding",
+            "wilson", "woodrow wilson", "president wilson",
+            "taft", "william taft", "william howard taft",
+            "mckinley", "william mckinley", "president mckinley",
+            "cleveland", "grover cleveland",
+            "harrison", "benjamin harrison", "william henry harrison",
+            "arthur", "chester arthur", "chester a arthur",
+            "garfield", "james garfield", "james a garfield",
+            "hayes", "rutherford hayes", "rutherford b hayes",
+            "grant", "ulysses grant", "ulysses s grant", "general grant",
+            "andrew johnson", "president johnson",
+            "lincoln", "abraham lincoln", "abe lincoln", "president lincoln", "honest abe",
+            "buchanan", "james buchanan",
+            "pierce", "franklin pierce",
+            "fillmore", "millard fillmore",
+            "taylor", "zachary taylor",
+            "polk", "james polk", "james k polk",
+            "tyler", "john tyler",
+            "van buren", "martin van buren",
+            "jackson", "andrew jackson", "old hickory",
+            "adams", "john adams", "john quincy adams", "samuel adams",
+            "jefferson", "thomas jefferson", "president jefferson",
+            "washington", "george washington", "president washington", "general washington",
+
+            # === UNITED STATES - FOUNDING FATHERS & EARLY LEADERS ===
+            "benjamin franklin", "ben franklin", "franklin",
+            "alexander hamilton", "hamilton",
+            "james madison", "madison",
+            "james monroe", "monroe",
+            "john jay",
+            "patrick henry",
+            "paul revere",
+            "john hancock",
+            "thomas paine",
+            "aaron burr", "burr",
+            "betsy ross",
+
+            # === UNITED STATES - CIVIL WAR ERA ===
+            "robert e lee", "general lee", "lee",
+            "stonewall jackson", "thomas jackson",
+            "ulysses s grant", "general grant",
+            "william sherman", "general sherman", "sherman",
+            "jefferson davis",
+            "john brown",
+            "harriet tubman", "tubman",
+            "frederick douglass", "douglass",
+            "clara barton",
+            "sojourner truth",
+
+            # === UNITED STATES - CIVIL RIGHTS LEADERS ===
+            "martin luther king", "mlk", "dr king", "martin luther king jr", "reverend king",
+            "rosa parks",
+            "malcolm x", "malcolm little", "el-hajj malik el-shabazz",
+            "john lewis", "congressman lewis",
+            "medgar evers",
+            "thurgood marshall", "justice marshall",
+            "booker t washington",
+            "w e b du bois", "du bois",
+            "ida b wells",
+            "jesse jackson", "reverend jackson",
+            "al sharpton", "reverend sharpton",
+            "coretta scott king",
+            "ralph abernathy",
+            "stokely carmichael",
+            "huey newton",
+            "angela davis",
+            "cesar chavez",
+            "dolores huerta",
+
+            # === UNITED STATES - SUPREME COURT JUSTICES ===
+            "john roberts", "chief justice roberts", "roberts",
+            "clarence thomas", "justice thomas",
+            "samuel alito", "justice alito", "alito",
+            "sonia sotomayor", "justice sotomayor", "sotomayor",
+            "elena kagan", "justice kagan", "kagan",
+            "neil gorsuch", "justice gorsuch", "gorsuch",
+            "brett kavanaugh", "justice kavanaugh", "kavanaugh",
+            "amy coney barrett", "justice barrett", "barrett",
+            "ketanji brown jackson", "justice jackson",
+            "ruth bader ginsburg", "rbg", "justice ginsburg", "ginsburg",
+            "antonin scalia", "justice scalia", "scalia",
+            "anthony kennedy", "justice kennedy",
+            "sandra day oconnor", "oconnor",
+            "john paul stevens",
+            "david souter",
+            "earl warren", "chief justice warren",
+
+            # === UNITED STATES - VICE PRESIDENTS & FIRST LADIES ===
+            "kamala harris", "harris", "vice president harris",
+            "mike pence", "pence", "vice president pence",
+            "dick cheney", "cheney", "vice president cheney",
+            "al gore", "gore", "vice president gore",
+            "dan quayle", "quayle",
+            "walter mondale", "mondale",
+            "nelson rockefeller",
+            "spiro agnew", "agnew",
+            "hubert humphrey", "humphrey",
+            "hillary clinton", "hillary rodham clinton", "secretary clinton",
+            "michelle obama", "first lady obama",
+            "melania trump", "first lady trump",
+            "jill biden", "dr jill biden",
+            "laura bush", "first lady bush",
+            "barbara bush",
+            "nancy reagan", "first lady reagan",
+            "jacqueline kennedy", "jackie kennedy", "jackie o",
+            "eleanor roosevelt", "first lady roosevelt",
+
+            # === UNITED STATES - CABINET & KEY OFFICIALS ===
+            "blinken", "antony blinken", "secretary blinken",
+            "pompeo", "mike pompeo", "secretary pompeo",
+            "tillerson", "rex tillerson",
+            "kerry", "john kerry", "secretary kerry",
+            "hillary clinton", "secretary clinton",
+            "condoleezza rice", "condi rice", "secretary rice",
+            "colin powell", "general powell", "secretary powell",
+            "madeleine albright", "secretary albright",
+            "austin", "lloyd austin", "secretary austin",
+            "mattis", "james mattis", "general mattis", "mad dog mattis",
+            "esper", "mark esper",
+            "rumsfeld", "donald rumsfeld", "secretary rumsfeld",
+            "yellen", "janet yellen", "secretary yellen",
+            "mnuchin", "steven mnuchin",
+            "geithner", "timothy geithner",
+            "paulson", "hank paulson", "henry paulson",
+            "garland", "merrick garland", "attorney general garland",
+            "barr", "william barr", "bill barr", "attorney general barr",
+            "sessions", "jeff sessions", "attorney general sessions",
+            "holder", "eric holder", "attorney general holder",
+            "comey", "james comey", "director comey",
+            "mueller", "robert mueller", "special counsel mueller",
+
+            # === UNITED STATES - MILITARY LEADERS ===
+            "general milley", "mark milley", "milley",
+            "general petraeus", "david petraeus", "petraeus",
+            "general mcchrystal", "stanley mcchrystal",
+            "norman schwarzkopf", "stormin norman",
+            "wesley clark",
+            "douglas macarthur", "general macarthur", "macarthur",
+            "george patton", "general patton", "patton",
+            "omar bradley", "general bradley",
+            "chester nimitz", "admiral nimitz",
+            "john pershing", "general pershing", "black jack pershing",
+
+            # === UNITED STATES - CONGRESSIONAL LEADERS ===
+            "pelosi", "nancy pelosi", "speaker pelosi",
+            "mccarthy", "kevin mccarthy", "speaker mccarthy",
+            "johnson", "mike johnson", "speaker johnson",
+            "schumer", "chuck schumer", "senator schumer", "majority leader schumer",
+            "mcconnell", "mitch mcconnell", "senator mcconnell", "minority leader mcconnell",
+            "aoc", "alexandria ocasio-cortez", "ocasio-cortez",
+            "bernie sanders", "sanders", "senator sanders",
+            "elizabeth warren", "warren", "senator warren",
+            "ted cruz", "cruz", "senator cruz",
+            "marco rubio", "rubio", "senator rubio",
+            "mitt romney", "romney", "senator romney",
+            "rand paul", "senator paul",
+            "lindsey graham", "graham", "senator graham",
+            "joe manchin", "manchin", "senator manchin",
+            "kyrsten sinema", "sinema",
+            "adam schiff", "schiff", "representative schiff",
+            "jim jordan", "jordan", "representative jordan",
+            "marjorie taylor greene", "mtg",
+            "matt gaetz", "gaetz",
+            "newt gingrich", "gingrich", "speaker gingrich",
+            "tip oneill", "oneill",
+            "bob dole", "dole", "senator dole",
+            "john mccain", "mccain", "senator mccain",
+            "ted kennedy", "senator kennedy",
+            "robert kennedy", "rfk", "bobby kennedy",
+
+            # === UNITED STATES - GOVERNORS & STATE LEADERS ===
+            "desantis", "ron desantis", "governor desantis",
+            "newsom", "gavin newsom", "governor newsom",
+            "abbott", "greg abbott", "governor abbott",
+            "cuomo", "andrew cuomo", "governor cuomo",
+            "hochul", "kathy hochul", "governor hochul",
+            "pritzker", "jb pritzker",
+            "whitmer", "gretchen whitmer", "governor whitmer",
+            "kemp", "brian kemp",
+            "noem", "kristi noem",
+            "haley", "nikki haley", "ambassador haley",
+            "polis", "jared polis",
+            "schwarzenegger", "arnold schwarzenegger", "governor schwarzenegger",
+            "jerry brown", "governor brown",
+            "rudy giuliani", "giuliani", "mayor giuliani",
+            "bloomberg", "michael bloomberg", "mayor bloomberg",
+            "de blasio", "bill de blasio",
+            "eric adams", "mayor adams",
+
+            # === UNITED STATES - OTHER NOTABLE FIGURES ===
+            "elon musk", "musk",
+            "jeff bezos", "bezos",
+            "mark zuckerberg", "zuckerberg", "zuck",
+            "bill gates", "gates",
+            "warren buffett", "buffett",
+            "steve jobs", "jobs",
+            "tim cook",
+            "sam altman",
+            "henry kissinger", "kissinger", "secretary kissinger",
+            "zbigniew brzezinski", "brzezinski",
+            "george soros", "soros",
+            "koch", "charles koch", "david koch", "koch brothers",
+            "rupert murdoch", "murdoch",
+            "oprah", "oprah winfrey",
+            "tucker carlson", "carlson",
+            "sean hannity", "hannity",
+            "rachel maddow", "maddow",
+            "alex jones",
+            "rush limbaugh", "limbaugh",
+            "bob woodward", "woodward",
+            "carl bernstein", "bernstein",
+            "edward snowden", "snowden",
+            "julian assange", "assange",
+            "chelsea manning", "manning",
+
+            # === UNITED KINGDOM (Monarchs, PMs) ===
+            "king charles", "charles iii", "king charles iii",
+            "queen elizabeth", "elizabeth ii", "queen elizabeth ii",
+            "prince william", "william", "prince of wales",
+            "prince harry", "harry", "duke of sussex",
+            "kate middleton", "catherine", "princess of wales",
+            "meghan markle", "meghan", "duchess of sussex",
+            "starmer", "keir starmer", "prime minister starmer", "sir keir starmer",
+            "sunak", "rishi sunak", "prime minister sunak",
+            "truss", "liz truss", "prime minister truss",
+            "boris johnson", "johnson", "prime minister johnson",
+            "theresa may", "may", "prime minister may",
+            "david cameron", "cameron", "prime minister cameron",
+            "gordon brown", "brown", "prime minister brown",
+            "tony blair", "blair", "prime minister blair",
+            "john major", "major",
+            "thatcher", "margaret thatcher", "prime minister thatcher", "baroness thatcher",
+
+            # === CANADA ===
+            "trudeau", "justin trudeau", "prime minister trudeau", "pierre trudeau",
+            "harper", "stephen harper",
+            "chretien", "jean chretien",
+            "mulroney", "brian mulroney",
+            "poilievre", "pierre poilievre",
+
+            # === FRANCE ===
+            "macron", "emmanuel macron", "president macron",
+            "hollande", "francois hollande", "president hollande",
+            "sarkozy", "nicolas sarkozy", "president sarkozy",
+            "chirac", "jacques chirac",
+            "mitterrand", "francois mitterrand",
+            "de gaulle", "charles de gaulle", "general de gaulle",
+            "le pen", "marine le pen", "jean-marie le pen",
+            "melenchon", "jean-luc melenchon",
+            "attal", "gabriel attal", "prime minister attal",
+            "borne", "elisabeth borne",
+
+            # === GERMANY ===
+            "scholz", "olaf scholz", "chancellor scholz",
+            "merkel", "angela merkel", "chancellor merkel",
+            "schroeder", "gerhard schroeder", "chancellor schroeder",
+            "kohl", "helmut kohl", "chancellor kohl",
+            "steinmeier", "frank-walter steinmeier", "president steinmeier",
+            "habeck", "robert habeck",
+            "lindner", "christian lindner",
+            "baerbock", "annalena baerbock",
+
+            # === ITALY ===
+            "meloni", "giorgia meloni", "prime minister meloni",
+            "draghi", "mario draghi", "prime minister draghi",
+            "conte", "giuseppe conte",
+            "berlusconi", "silvio berlusconi",
+            "renzi", "matteo renzi",
+            "salvini", "matteo salvini",
+            "mattarella", "sergio mattarella", "president mattarella",
+
+            # === SPAIN ===
+            "sanchez", "pedro sanchez", "prime minister sanchez",
+            "rajoy", "mariano rajoy",
+            "zapatero", "jose luis zapatero",
+            "felipe vi", "king felipe",
+
+            # === OTHER WESTERN EUROPE ===
+            "rutte", "mark rutte", "prime minister rutte",
+            "wilders", "geert wilders",
+            "de croo", "alexander de croo",
+            "bettel", "xavier bettel",
+            "ammann", "alain berset", "viola amherd",
+            "nehammer", "karl nehammer",
+            "kurz", "sebastian kurz",
+            "costa", "antonio costa",
+            "rebelo de sousa", "marcelo rebelo de sousa",
+
+            # === NORDIC COUNTRIES ===
+            "frederiksen", "mette frederiksen",
+            "kristersson", "ulf kristersson",
+            "andersson", "magdalena andersson",
+            "store", "jonas gahr store",
+            "solberg", "erna solberg",
+            "marin", "sanna marin",
+            "stubb", "alexander stubb",
+            "orpo", "petteri orpo",
+            "niinisto", "sauli niinisto",
+
+            # === EASTERN EUROPE ===
+            "zelensky", "zelenskyy", "volodymyr zelensky", "president zelensky", "volodymyr zelenskyy",
+            "poroshenko", "petro poroshenko",
+            "yanukovych", "viktor yanukovych",
+            "tymoshenko", "yulia tymoshenko",
+            "duda", "andrzej duda", "president duda",
+            "morawiecki", "mateusz morawiecki",
+            "tusk", "donald tusk", "prime minister tusk",
+            "kaczynski", "jaroslaw kaczynski", "lech kaczynski",
+            "orban", "viktor orban", "prime minister orban",
+            "fiala", "petr fiala",
+            "babis", "andrej babis",
+            "zeman", "milos zeman",
+            "havel", "vaclav havel",
+            "fico", "robert fico",
+            "iohannis", "klaus iohannis",
+            "radev", "rumen radev",
+            "vucic", "aleksandar vucic",
+            "plenkovic", "andrej plenkovic",
+            "pahor", "borut pahor",
+            "rama", "edi rama",
+            "milo", "milo djukanovic",
+
+            # === RUSSIA & FORMER USSR ===
+            "putin", "vladimir putin", "president putin", "vladimir vladimirovich putin",
+            "medvedev", "dmitry medvedev", "prime minister medvedev",
+            "lavrov", "sergey lavrov", "foreign minister lavrov", "sergei lavrov",
+            "shoigu", "sergei shoigu", "defense minister shoigu",
+            "gerasimov", "valery gerasimov",
+            "prigozhin", "yevgeny prigozhin",
+            "navalny", "alexei navalny", "aleksei navalny",
+            "gorbachev", "mikhail gorbachev", "president gorbachev",
+            "yeltsin", "boris yeltsin", "president yeltsin",
+            "khrushchev", "nikita khrushchev",
+            "stalin", "joseph stalin",
+            "lenin", "vladimir lenin",
+            "lukashenko", "alexander lukashenko", "president lukashenko", "alyaksandr lukashenko",
+            "tokayev", "kassym-jomart tokayev",
+            "nazarbayev", "nursultan nazarbayev",
+            "mirziyoyev", "shavkat mirziyoyev",
+            "aliyev", "ilham aliyev",
+            "pashinyan", "nikol pashinyan",
+            "garibashvili", "irakli garibashvili",
+            "saakashvili", "mikheil saakashvili",
+
+            # === CHINA ===
+            "xi", "xi jinping", "president xi", "chairman xi", "xi jin ping",
+            "li qiang", "premier li qiang", "prime minister li",
+            "li keqiang", "premier li keqiang",
+            "wang yi", "foreign minister wang",
+            "hu jintao", "president hu",
+            "jiang zemin", "president jiang",
+            "deng xiaoping", "deng",
+            "mao", "mao zedong", "chairman mao", "mao tse-tung",
+            "zhou enlai", "premier zhou",
+            "wen jiabao", "premier wen",
+
+            # === JAPAN ===
+            "kishida", "fumio kishida", "prime minister kishida",
+            "suga", "yoshihide suga", "prime minister suga",
+            "abe", "shinzo abe", "prime minister abe",
+            "koizumi", "junichiro koizumi",
+            "emperor naruhito", "naruhito",
+            "emperor akihito", "akihito",
+
+            # === KOREA ===
+            "yoon", "yoon suk yeol", "president yoon", "yoon suk-yeol",
+            "moon", "moon jae-in", "president moon",
+            "park geun-hye", "park",
+            "lee myung-bak",
+            "kim jong un", "kim jong-un", "jong un", "chairman kim",
+            "kim jong il", "kim il sung",
+
+            # === INDIA ===
+            "modi", "narendra modi", "prime minister modi", "pm modi",
+            "gandhi", "rahul gandhi", "sonia gandhi", "indira gandhi", "rajiv gandhi", "mahatma gandhi",
+            "singh", "manmohan singh", "prime minister singh",
+            "vajpayee", "atal bihari vajpayee",
+            "murmu", "droupadi murmu", "president murmu",
+            "kovind", "ram nath kovind",
+            "shah", "amit shah", "home minister shah",
+            "jaishankar", "s jaishankar",
+
+            # === PAKISTAN ===
+            "sharif", "nawaz sharif", "shehbaz sharif", "prime minister sharif",
+            "khan", "imran khan", "prime minister khan",
+            "bhutto", "benazir bhutto", "zulfikar ali bhutto", "bilawal bhutto",
+            "zardari", "asif ali zardari",
+            "musharraf", "pervez musharraf",
+
+            # === SOUTHEAST ASIA ===
+            "marcos", "bongbong marcos", "ferdinand marcos jr", "ferdinand marcos",
+            "duterte", "rodrigo duterte", "president duterte",
+            "aquino", "benigno aquino", "corazon aquino",
+            "jokowi", "joko widodo", "president jokowi",
+            "prabowo", "prabowo subianto",
+            "yudhoyono", "susilo bambang yudhoyono",
+            "anwar", "anwar ibrahim", "prime minister anwar",
+            "mahathir", "mahathir mohamad",
+            "lee hsien loong", "prime minister lee",
+            "lee kuan yew",
+            "prayuth", "prayuth chan-ocha",
+            "thaksin", "thaksin shinawatra",
+            "hun sen", "prime minister hun sen",
+            "hun manet",
+            "aung san suu kyi", "suu kyi",
+            "min aung hlaing",
+
+            # === MIDDLE EAST - ISRAEL ===
+            "netanyahu", "benjamin netanyahu", "bibi", "prime minister netanyahu", "bibi netanyahu",
+            "gantz", "benny gantz",
+            "lapid", "yair lapid",
+            "bennett", "naftali bennett",
+            "herzog", "isaac herzog", "president herzog",
+            "ben-gvir", "itamar ben-gvir",
+            "smotrich", "bezalel smotrich",
+            "sharon", "ariel sharon",
+            "olmert", "ehud olmert",
+            "barak", "ehud barak",
+            "peres", "shimon peres",
+            "rabin", "yitzhak rabin",
+            "begin", "menachem begin",
+            "ben-gurion", "david ben-gurion",
+
+            # === MIDDLE EAST - PALESTINE ===
+            "abbas", "mahmoud abbas", "president abbas", "abu mazen",
+            "arafat", "yasser arafat",
+            "haniyeh", "ismail haniyeh",
+            "sinwar", "yahya sinwar",
+            "meshaal", "khaled meshaal",
+
+            # === MIDDLE EAST - IRAN ===
+            "khamenei", "ali khamenei", "ayatollah khamenei", "supreme leader khamenei",
+            "raisi", "ebrahim raisi", "president raisi",
+            "rouhani", "hassan rouhani",
+            "ahmadinejad", "mahmoud ahmadinejad",
+            "khatami", "mohammad khatami",
+            "khomeini", "ayatollah khomeini", "ruhollah khomeini",
+            "zarif", "javad zarif", "mohammad javad zarif",
+            "soleimani", "qasem soleimani", "general soleimani",
+
+            # === MIDDLE EAST - TURKEY ===
+            "erdogan", "recep tayyip erdogan", "president erdogan", "tayyip erdogan",
+            "davutoglu", "ahmet davutoglu",
+            "yildirim", "binali yildirim",
+            "ataturk", "mustafa kemal ataturk", "kemal ataturk",
+
+            # === MIDDLE EAST - ARAB STATES ===
+            "mbs", "mohammed bin salman", "crown prince mohammed", "prince mohammed",
+            "king salman", "salman bin abdulaziz", "king salman bin abdulaziz",
+            "king abdullah", "abdullah ii",
+            "sisi", "abdel fattah el-sisi", "al-sisi", "president sisi",
+            "mubarak", "hosni mubarak",
+            "morsi", "mohamed morsi",
+            "assad", "bashar al-assad", "bashar assad", "president assad",
+            "hafez assad", "hafez al-assad",
+            "saddam", "saddam hussein",
+            "maliki", "nouri al-maliki",
+            "abadi", "haider al-abadi",
+            "kadhimi", "mustafa al-kadhimi",
+            "gaddafi", "muammar gaddafi", "qaddafi", "colonel gaddafi",
+            "haftar", "khalifa haftar",
+            "houthi", "abdul-malik al-houthi",
+            "sheikh mohammed", "mohammed bin rashid", "mbr",
+            "tamim", "sheikh tamim", "emir tamim",
+
+            # === AFRICA - NORTH ===
+            "tebboune", "abdelmadjid tebboune",
+            "bouteflika", "abdelaziz bouteflika",
+            "saied", "kais saied",
+            "essebsi", "beji caid essebsi",
+            "king mohammed vi", "mohammed vi",
+
+            # === AFRICA - SUB-SAHARAN ===
+            "ramaphosa", "cyril ramaphosa", "president ramaphosa",
+            "zuma", "jacob zuma",
+            "mbeki", "thabo mbeki",
+            "mandela", "nelson mandela", "madiba",
+            "de klerk", "fw de klerk",
+            "kagame", "paul kagame", "president kagame",
+            "museveni", "yoweri museveni",
+            "ruto", "william ruto", "president ruto",
+            "kenyatta", "uhuru kenyatta", "jomo kenyatta",
+            "tinubu", "bola tinubu", "president tinubu",
+            "buhari", "muhammadu buhari",
+            "obasanjo", "olusegun obasanjo",
+            "jonathan", "goodluck jonathan",
+            "abiy", "abiy ahmed", "prime minister abiy",
+            "afwerki", "isaias afwerki",
+            "bashir", "omar al-bashir",
+            "burhan", "abdel fattah al-burhan",
+            "hemeti", "mohamed hamdan dagalo",
+            "kabila", "joseph kabila", "laurent kabila",
+            "tshisekedi", "felix tshisekedi",
+            "mnangagwa", "emmerson mnangagwa",
+            "mugabe", "robert mugabe",
+            "dos santos", "jose eduardo dos santos",
+            "lourenco", "joao lourenco",
+            "deby", "idriss deby", "mahamat deby",
+            "keita", "ibrahim boubacar keita",
+            "goita", "assimi goita",
+            "ouattara", "alassane ouattara",
+            "akufo-addo", "nana akufo-addo",
+            "mahama", "john mahama",
+            "macky sall", "sall",
+            "conde", "alpha conde",
+
+            # === LATIN AMERICA ===
+            "lula", "lula da silva", "luiz inacio lula da silva", "president lula",
+            "bolsonaro", "jair bolsonaro", "president bolsonaro",
+            "rousseff", "dilma rousseff",
+            "temer", "michel temer",
+            "cardoso", "fernando henrique cardoso",
+            "amlo", "lopez obrador", "andres manuel lopez obrador",
+            "calderon", "felipe calderon",
+            "pena nieto", "enrique pena nieto",
+            "sheinbaum", "claudia sheinbaum",
+            "milei", "javier milei", "president milei",
+            "fernandez", "alberto fernandez", "cristina fernandez", "cristina kirchner",
+            "macri", "mauricio macri",
+            "kirchner", "nestor kirchner",
+            "maduro", "nicolas maduro", "president maduro",
+            "chavez", "hugo chavez", "president chavez",
+            "guaido", "juan guaido",
+            "petro", "gustavo petro", "president petro",
+            "duque", "ivan duque",
+            "santos", "juan manuel santos",
+            "uribe", "alvaro uribe",
+            "boric", "gabriel boric", "president boric",
+            "pinera", "sebastian pinera",
+            "bachelet", "michelle bachelet",
+            "castillo", "pedro castillo",
+            "boluarte", "dina boluarte",
+            "morales", "evo morales",
+            "arce", "luis arce",
+            "correa", "rafael correa",
+            "noboa", "daniel noboa",
+            "bukele", "nayib bukele", "president bukele",
+            "ortega", "daniel ortega",
+            "castro", "fidel castro", "raul castro", "miguel diaz-canel", "diaz-canel",
+            "aristide", "jean-bertrand aristide",
+
+            # === OCEANIA ===
+            "albanese", "anthony albanese", "prime minister albanese",
+            "morrison", "scott morrison",
+            "turnbull", "malcolm turnbull",
+            "abbott", "tony abbott",
+            "gillard", "julia gillard",
+            "rudd", "kevin rudd",
+            "howard", "john howard",
+            "luxon", "christopher luxon",
+            "ardern", "jacinda ardern", "prime minister ardern",
+            "hipkins", "chris hipkins",
+
+            # === INTERNATIONAL ORGANIZATIONS ===
+            "guterres", "antonio guterres", "secretary general guterres", "un secretary general",
+            "ban ki-moon", "ban", "secretary general ban",
+            "kofi annan", "annan",
+            "stoltenberg", "jens stoltenberg", "secretary general stoltenberg",
+            "von der leyen", "ursula von der leyen", "president von der leyen",
+            "michel", "charles michel",
+            "lagarde", "christine lagarde", "ecb president lagarde",
+            "draghi", "mario draghi",
+            "georgieva", "kristalina georgieva",
+            "okonjo-iweala", "ngozi okonjo-iweala",
+            "tedros", "tedros adhanom", "dr tedros",
+
+            # === RELIGIOUS LEADERS ===
+            "pope francis", "francis", "pope",
+            "pope benedict", "benedict xvi", "joseph ratzinger",
+            "pope john paul", "john paul ii", "karol wojtyla",
+            "dalai lama", "tenzin gyatso",
+            "patriarch kirill", "kirill",
+            "archbishop welby", "justin welby",
+
+            # === MAJOR HISTORICAL FIGURES (20th century, still referenced) ===
+            "churchill", "winston churchill",
+            "hitler", "adolf hitler",
+            "mussolini", "benito mussolini",
+            "franco", "francisco franco",
+            "tito", "josip broz tito",
+            "ceausescu", "nicolae ceausescu",
+            "pinochet", "augusto pinochet",
+            "pol pot",
+            "ho chi minh",
+            "sukarno", "suharto",
+            "nasser", "gamal abdel nasser",
+            "sadat", "anwar sadat",
         }
 
         # Countries & Nations (all 195 UN members + common aliases + territories)
@@ -1908,17 +2804,127 @@ class NewsAggregatorApp:
             "greenpeace", "doctors without borders", "msf", "oxfam", "care",
             "save the children", "world wildlife fund", "wwf", "iucn",
             "transparency international", "reporters without borders",
+            # === TECH ACRONYMS & TERMS ===
+            # AI & Machine Learning
+            "ai", "artificial intelligence", "ml", "machine learning", "llm", "llms",
+            "large language model", "gpt", "chatgpt", "gpt-4", "gpt-5", "claude",
+            "generative ai", "gen ai", "neural network", "neural networks",
+            "deep learning", "nlp", "natural language processing", "computer vision",
+            "reinforcement learning", "supervised learning", "transformer",
+            "diffusion model", "stable diffusion", "midjourney", "dall-e",
+            "copilot", "gemini", "bard", "llama", "mistral", "perplexity",
+            # VR/AR/XR
+            "vr", "virtual reality", "ar", "augmented reality", "xr", "mixed reality",
+            "metaverse", "oculus", "quest", "hololens", "vision pro", "spatial computing",
+            # Connectivity & Infrastructure
+            "iot", "internet of things", "5g", "6g", "wifi", "wi-fi", "broadband",
+            "fiber optic", "starlink", "satellite internet", "edge computing",
+            "cloud computing", "aws", "azure", "gcp", "data center", "data centers",
+            "api", "apis", "saas", "paas", "iaas", "microservices", "kubernetes",
+            "docker", "devops", "agile", "scrum",
+            # Electric & Autonomous Vehicles
+            "ev", "evs", "electric vehicle", "electric vehicles", "hybrid",
+            "autonomous vehicle", "autonomous vehicles", "self-driving", "autopilot",
+            "full self-driving", "fsd", "lidar", "adas", "vehicle-to-everything", "v2x",
+            # Crypto & Blockchain
+            "blockchain", "cryptocurrency", "cryptocurrencies", "crypto",
+            "bitcoin", "btc", "ethereum", "eth", "solana", "cardano", "dogecoin",
+            "stablecoin", "stablecoins", "usdt", "usdc", "defi", "decentralized finance",
+            "nft", "nfts", "non-fungible token", "web3", "dao", "smart contract",
+            "smart contracts", "mining", "proof of work", "proof of stake",
+            # Cybersecurity
+            "deepfake", "deepfakes", "cybersecurity", "cyber security", "infosec",
+            "ransomware", "malware", "phishing", "spyware", "trojan", "botnet",
+            "ddos", "zero-day", "exploit", "vulnerability", "data breach",
+            "encryption", "end-to-end encryption", "vpn", "firewall", "antivirus",
+            "two-factor", "2fa", "mfa", "biometric", "biometrics",
+            # Hardware & Chips
+            "semiconductor", "semiconductors", "chip", "chips", "microchip", "microchips",
+            "cpu", "gpu", "gpus", "tpu", "processor", "processors", "silicon",
+            "nanometer", "fab", "foundry", "tsmc", "asml", "arm", "risc-v", "quantum",
+            "quantum computing", "quantum computer", "qubit", "qubits",
+            # Software & Platforms
+            "software", "hardware", "firmware", "app", "apps", "application",
+            "platform", "platforms", "algorithm", "algorithms", "open source",
+            "proprietary", "linux", "windows", "macos", "android", "ios",
+            # Data & Analytics
+            "big data", "data analytics", "data science", "database", "sql", "nosql",
+            "data privacy", "gdpr", "ccpa", "cookies", "tracking", "surveillance",
+            # Social Media & Content
+            "social media", "streaming", "content moderation", "misinformation",
+            "disinformation", "fake news", "bot", "bots", "troll", "viral",
+            "influencer", "influencers", "creator economy", "monetization",
+            # Emerging Tech
+            "biotech", "biotechnology", "crispr", "gene editing", "mrna",
+            "nanotechnology", "nanotech", "3d printing", "additive manufacturing",
+            "robotics", "robot", "robots", "drone", "drones", "uav",
+            "brain-computer interface", "bci", "neuralink", "wearable", "wearables",
             # === TECH COMPANIES ===
+            # Big Tech / FAANG+
             "apple", "google", "alphabet", "microsoft", "amazon", "meta", "facebook",
-            "twitter", "x corp", "tesla", "nvidia", "intel", "amd", "qualcomm",
-            "openai", "anthropic", "deepmind", "ibm", "oracle", "salesforce",
-            "adobe", "cisco", "dell", "hp", "hewlett packard", "lenovo",
-            "samsung", "sony", "lg", "panasonic", "toshiba", "huawei", "xiaomi",
-            "tiktok", "bytedance", "alibaba", "tencent", "baidu", "jd.com",
-            "netflix", "spotify", "uber", "lyft", "airbnb", "doordash",
-            "paypal", "square", "stripe", "coinbase", "robinhood",
-            "zoom", "slack", "dropbox", "atlassian", "shopify", "snowflake",
-            "palantir", "crowdstrike", "palo alto networks", "fortinet",
+            "twitter", "x corp", "tesla", "nvidia", "netflix",
+            # AI Companies
+            "openai", "anthropic", "deepmind", "google ai", "meta ai", "microsoft ai",
+            "cohere", "stability ai", "inflection", "character ai", "hugging face",
+            "scale ai", "databricks", "c3 ai", "soundhound", "jasper",
+            "runway", "eleven labs", "synthesia", "replika", "adept",
+            # Semiconductors & Hardware
+            "intel", "amd", "nvidia", "qualcomm", "broadcom", "texas instruments",
+            "micron", "western digital", "seagate", "sk hynix", "mediatek",
+            "marvell", "on semiconductor", "analog devices", "nxp", "infineon",
+            "arm holdings", "synopsys", "cadence", "lam research", "applied materials",
+            # Enterprise Software
+            "ibm", "oracle", "salesforce", "sap", "workday", "servicenow",
+            "adobe", "intuit", "autodesk", "vmware", "splunk", "datadog",
+            "mongodb", "elastic", "confluent", "hashicorp", "gitlab", "github",
+            "atlassian", "asana", "monday", "notion", "airtable", "figma",
+            # Cloud & Infrastructure
+            "cisco", "juniper", "arista", "f5", "cloudflare", "fastly", "akamai",
+            "digitalocean", "linode", "vultr", "rackspace", "equinix",
+            # Hardware & Devices
+            "dell", "hp", "hewlett packard", "hpe", "lenovo", "asus", "acer",
+            "samsung", "sony", "lg", "panasonic", "toshiba", "sharp", "tcl",
+            "huawei", "xiaomi", "oppo", "vivo", "oneplus", "realme", "honor",
+            "logitech", "razer", "corsair", "steelseries",
+            # Social Media & Content
+            "tiktok", "bytedance", "snap", "snapchat", "pinterest", "reddit",
+            "discord", "twitch", "youtube", "instagram", "whatsapp", "telegram",
+            "signal", "wechat", "weibo", "line", "kakao",
+            # Chinese Tech Giants
+            "alibaba", "tencent", "baidu", "jd.com", "meituan", "pinduoduo",
+            "didi", "nio", "xpeng", "li auto", "netease", "bilibili",
+            "kuaishou", "ant group", "sea limited", "grab", "gojek",
+            # E-commerce & Marketplaces
+            "ebay", "etsy", "wayfair", "chewy", "wish", "mercadolibre",
+            "coupang", "flipkart", "lazada", "shopee", "zalando",
+            # Streaming & Entertainment
+            "netflix", "spotify", "roku", "sonos", "pandora", "deezer",
+            "hulu", "peacock", "paramount+", "discovery+", "crunchyroll",
+            # Rideshare & Delivery
+            "uber", "lyft", "airbnb", "doordash", "instacart", "grubhub",
+            "deliveroo", "just eat", "bolt", "ola", "careem", "gett",
+            # Fintech & Payments
+            "paypal", "square", "block", "stripe", "coinbase", "robinhood",
+            "klarna", "affirm", "afterpay", "marqeta", "plaid", "chime",
+            "sofi", "revolut", "n26", "monzo", "wise", "adyen",
+            "binance", "kraken", "gemini", "ftx", "celsius", "blockfi",
+            # Collaboration & Productivity
+            "zoom", "slack", "dropbox", "box", "docusign", "ringcentral",
+            "twilio", "okta", "zscaler", "crowdstrike", "sentinelone",
+            "shopify", "wix", "squarespace", "godaddy", "hubspot", "mailchimp",
+            # Cybersecurity
+            "palo alto networks", "fortinet", "check point", "fireeye", "mandiant",
+            "mcafee", "norton", "symantec", "kaspersky", "bitdefender", "avast",
+            "proofpoint", "mimecast", "tenable", "rapid7", "qualys",
+            # Gaming Tech
+            "unity", "roblox", "zynga", "king", "supercell", "niantic",
+            "epic games", "valve", "steam", "ea", "ubisoft", "capcom",
+            # Data & Analytics
+            "snowflake", "palantir", "tableau", "alteryx", "domo", "qlik",
+            "teradata", "informatica", "talend", "fivetran",
+            # Health Tech
+            "teladoc", "doximity", "veeva", "cerner", "epic systems",
+            "fitbit", "peloton", "whoop", "oura", "garmin",
             # === FINANCE & BANKING ===
             "jpmorgan", "jpmorgan chase", "goldman sachs", "morgan stanley",
             "bank of america", "citigroup", "citibank", "wells fargo",
@@ -2276,14 +3282,344 @@ class NewsAggregatorApp:
                 add_highlight(match.start(), match.end(), "dates")
 
         # 4. Catch-all numbers (not already categorized)
-        number_pattern = r'\b\d+(?:\.\d+)?\b'
-        for match in re.finditer(number_pattern, text):
-            add_highlight(match.start(), match.end(), "numbers")
+        number_patterns = [
+            # Ordinals
+            r'\b\d+(?:st|nd|rd|th)\b',              # 1st, 2nd, 3rd, 250th
+            # Times
+            r'\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM|am|pm|a\.m\.|p\.m\.)?\b',  # 3:00, 10:30 PM
+            # Ranges and scores
+            r'\b\d+(?:\.\d+)?[-–—]\d+(?:\.\d+)?\b', # 10-15, 2.5-3.0, 2020–2024
+            r'\b\d+/\d+\b',                         # Fractions/scores: 1/2, 3/4
+            # Decades
+            r"\b\d{2,4}'?s\b",                      # 1990s, 80s, '90s
+            # With units
+            r'\b\d+(?:\.\d+)?\s*(?:km|mi|m|ft|in|cm|mm|kg|lb|lbs|oz|g|mg|mph|kph|fps|hz|khz|mhz|ghz|kb|mb|gb|tb|kw|mw|gw)\b',
+            # With K/M/B abbreviations
+            r'\b\d+(?:\.\d+)?\s*[KkMmBb]\b',        # 5K, 10M, 2.5B
+            # Version numbers
+            r'\bv?\d+(?:\.\d+)+\b',                 # v1.0, 2.5.1, v10.3.2
+            # Scientific notation
+            r'\b\d+(?:\.\d+)?[eE][+-]?\d+\b',       # 1e10, 2.5e-3
+            # Temperatures
+            r'[-−]?\d+(?:\.\d+)?°[FCfc]?\b',        # 72°F, -10°C, 22°
+            # Coordinates
+            r'\b\d+(?:\.\d+)?°[NSEW]?\b',           # 40.7128°N
+            # Stock/number changes
+            r'[+−-]\d+(?:\.\d+)?%?\b',              # +5.2, -3.8, +12%
+            # Numbered items
+            r'(?:No\.|#|№)\s*\d+\b',                # No. 1, #1, №1
+            # Hyphenated number phrases
+            r'\b\d+[-–](?:year|day|hour|minute|month|week|meter|mile|foot|pound|dollar|point|game|run|set)\b',
+            # Approximate/comparative
+            r'[~≈<>≤≥]\s*\d+(?:\.\d+)?',            # ~100, >50, <100
+            # Roman numerals (common ones in news)
+            r'\b(?:III|II|IV|VI|VII|VIII|IX|XI|XII|XIII|XIV|XV|XVI|XVII|XVIII|XIX|XX|XXI)\b',
+            # Feet and inches
+            r"\b\d+[''′]\s*\d*[\"″]?\b",            # 6'2", 5'
+            # Plain numbers (catch-all, must be last)
+            r'\b\d+(?:\.\d+)?\b',                   # 42, 3.14
+        ]
+        for pattern in number_patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                add_highlight(match.start(), match.end(), "numbers")
 
-        # 5. Verbs (news action words)
-        verb_pattern = r'\b(?:said|says|told|announced|reported|confirmed|denied|claimed|stated|revealed|warned|urged|declared|signed|passed|voted|launched|arrested|killed|injured|died|added|noted|explained|described|called|asked|accused|blamed|praised|criticized|rejected|accepted|approved|condemned|demanded|proposed|suggested|argued|insisted|acknowledged|admitted|agreed|disagreed|promised|threatened|vowed|pledged|ordered|banned|blocked|suspended|fired|resigned|appointed|elected|defeated|won|lost|fled|escaped|attacked|invaded|bombed|shelled|seized|captured|released|freed|charged|sentenced|convicted|acquitted|testified|investigated|raided|searched|discovered|found|recovered|identified|named|cited|quoted)\b'
-        for match in re.finditer(verb_pattern, text, re.IGNORECASE):
-            add_highlight(match.start(), match.end(), "verbs")
+        # 5. Verbs (news action words) - categorized with distinct colors
+        verb_categories = {
+            "verb_communication": [
+                "said", "says", "saying", "stated", "states", "stating", "declared", "declares",
+                "announced", "announces", "announcing", "told", "tells", "telling", "claimed", "claims", "claiming",
+                "asserted", "asserts", "asserting", "remarked", "remarking", "commented", "comments", "commenting",
+                "mentioned", "mentioning", "expressed", "expressing", "articulated", "articulating",
+                "conveyed", "conveying", "communicated", "communicating", "spoke", "speaks", "speaking",
+                "responded", "responds", "responding", "replied", "replies", "replying",
+                "answered", "answers", "answering", "questioned", "questions", "questioning",
+                "asked", "asks", "asking", "inquired", "inquiring", "queried", "querying",
+                "interviewed", "interviewing", "briefed", "briefing", "addressed", "addressing",
+                "emphasized", "emphasised", "emphasizing", "emphasising", "stressed", "stressing",
+                "highlighted", "highlighting", "underscored", "underscoring", "reiterated", "reiterating",
+                "repeated", "repeating", "clarified", "clarifying", "explained", "explains", "explaining",
+                "elaborated", "elaborating", "detailed", "detailing", "outlined", "outlining",
+                "summarized", "summarised", "summarizing", "summarising", "recapped", "recapping",
+                "described", "describes", "describing", "depicted", "depicting",
+                "characterized", "characterised", "characterizing", "characterising",
+                "portrayed", "portraying", "presented", "presents", "presenting",
+                "relayed", "relaying", "transmitted", "transmitting", "broadcast", "broadcasts", "broadcasting",
+                "published", "publishes", "publishing", "posted", "posts", "posting",
+                "tweeted", "tweets", "tweeting", "shared", "shares", "sharing",
+                "reported", "reports", "reporting", "disclosed", "discloses", "disclosing",
+                "revealed", "reveals", "revealing", "exposed", "exposes", "exposing",
+                "leaked", "leaks", "leaking", "divulged", "divulging", "confirmed", "confirms", "confirming",
+                "acknowledged", "acknowledges", "acknowledging", "admitted", "admits", "admitting",
+                "conceded", "concedes", "conceding", "noted", "notes", "noting",
+                "added", "adds", "adding", "cited", "cites", "citing", "quoted", "quotes", "quoting",
+                "referenced", "referencing", "indicated", "indicates", "indicating",
+                "signaled", "signalled", "signals", "signaling", "signalling",
+                "suggested", "suggests", "suggesting", "implied", "implies", "implying",
+                "hinted", "hints", "hinting", "alluded", "alluding", "insinuated", "insinuating",
+                "speculated", "speculates", "speculating", "predicted", "predicts", "predicting",
+                "forecast", "forecasts", "forecasting", "projected", "projects", "projecting",
+                "estimated", "estimates", "estimating", "calculated", "calculating", "assessed", "assessing",
+                "wrote", "writes", "writing", "penned", "penning", "authored", "authoring",
+            ],
+            "verb_accusation": [
+                "accused", "accuses", "accusing", "blamed", "blames", "blaming",
+                "alleged", "alleges", "alleging", "implicated", "implicating",
+                "incriminated", "incriminating", "condemned", "condemns", "condemning",
+                "denounced", "denounces", "denouncing",
+                "criticized", "criticised", "criticizes", "criticises", "criticizing", "criticising",
+                "slammed", "slams", "slamming", "blasted", "blasts", "blasting",
+                "lambasted", "lambasting", "castigated", "castigating",
+                "rebuked", "rebukes", "rebuking", "reprimanded", "reprimanding",
+                "chastised", "chastising", "scolded", "scolding", "admonished", "admonishing",
+                "faulted", "faults", "faulting", "singled", "singling",
+                "attacked", "attacking", "assailed", "assailing", "vilified", "vilifying",
+            ],
+            "verb_support": [
+                "praised", "praises", "praising", "commended", "commends", "commending",
+                "applauded", "applauds", "applauding", "hailed", "hails", "hailing",
+                "celebrated", "celebrates", "celebrating", "honored", "honoured", "honors", "honours", "honoring", "honouring",
+                "recognized", "recognised", "recognizes", "recognises", "recognizing", "recognising",
+                "endorsed", "endorses", "endorsing", "supported", "supports", "supporting",
+                "backed", "backs", "backing", "championed", "champions", "championing",
+                "advocated", "advocates", "advocating", "promoted", "promotes", "promoting",
+                "defended", "defends", "defending", "justified", "justifies", "justifying",
+                "validated", "validates", "validating", "upheld", "upholds", "upholding",
+                "embraced", "embraces", "embracing", "touted", "touts", "touting",
+            ],
+            "verb_agreement": [
+                "agreed", "agrees", "agreeing", "disagreed", "disagrees", "disagreeing",
+                "concurred", "concurs", "concurring", "disputed", "disputes", "disputing",
+                "contested", "contests", "contesting", "challenged", "challenges", "challenging",
+                "opposed", "opposes", "opposing", "objected", "objects", "objecting",
+                "protested", "protests", "protesting", "resisted", "resists", "resisting",
+                "rejected", "rejects", "rejecting", "refused", "refuses", "refusing",
+                "declined", "declines", "declining", "denied", "denies", "denying",
+                "contradicted", "contradicts", "contradicting", "countered", "counters", "countering",
+                "rebutted", "rebuts", "rebutting", "refuted", "refutes", "refuting",
+                "dismissed", "dismisses", "dismissing", "doubted", "doubts", "doubting",
+            ],
+            "verb_decision": [
+                "decided", "decides", "deciding", "determined", "determines", "determining",
+                "concluded", "concludes", "concluding", "resolved", "resolves", "resolving",
+                "ruled", "rules", "ruling", "judged", "judges", "judging", "decreed", "decreeing",
+                "ordered", "orders", "ordering", "commanded", "commands", "commanding",
+                "directed", "directs", "directing", "instructed", "instructs", "instructing",
+                "mandated", "mandates", "mandating", "required", "requires", "requiring",
+                "demanded", "demands", "demanding", "requested", "requests", "requesting",
+                "urged", "urges", "urging", "encouraged", "encourages", "encouraging",
+                "pressured", "pressures", "pressuring", "pushed", "pushes", "pushing",
+                "lobbied", "lobbies", "lobbying", "petitioned", "petitions", "petitioning",
+                "appealed", "appeals", "appealing", "sought", "seeks", "seeking",
+                "pursued", "pursues", "pursuing", "aimed", "aims", "aiming",
+                "intended", "intends", "intending", "planned", "plans", "planning",
+                "proposed", "proposes", "proposing", "recommended", "recommends", "recommending",
+                "forced", "forces", "forcing", "compelled", "compels", "compelling",
+                "labeled", "labelled", "labels", "labeling", "labelling",
+                "designated", "designates", "designating", "classified", "classifies", "classifying",
+            ],
+            "verb_political": [
+                "enacted", "enacts", "enacting", "legislated", "legislates", "legislating",
+                "passed", "passes", "passing", "vetoed", "vetoes", "vetoing",
+                "signed", "signs", "signing", "ratified", "ratifies", "ratifying",
+                "amended", "amends", "amending", "repealed", "repeals", "repealing",
+                "overturned", "overturns", "overturning", "enforced", "enforces", "enforcing",
+                "implemented", "implements", "implementing", "administered", "administers", "administering",
+                "governed", "governs", "governing", "regulated", "regulates", "regulating",
+                "deregulated", "deregulates", "deregulating", "sanctioned", "sanctions", "sanctioning",
+                "embargoed", "embargoes", "embargoing",
+                "authorized", "authorised", "authorizes", "authorises", "authorizing", "authorising",
+                "approved", "approves", "approving", "certified", "certifies", "certifying",
+                "licensed", "licenced", "licenses", "licences", "licensing", "licencing",
+                "permitted", "permits", "permitting", "banned", "bans", "banning",
+                "prohibited", "prohibits", "prohibiting", "blocked", "blocks", "blocking",
+                "suspended", "suspends", "suspending", "revoked", "revokes", "revoking",
+                "rescinded", "rescinds", "rescinding", "appointed", "appoints", "appointing",
+                "nominated", "nominates", "nominating", "elected", "elects", "electing",
+                "inaugurated", "inaugurates", "inaugurating", "sworn", "swore", "swearing",
+                "impeached", "impeaches", "impeaching", "ousted", "ousts", "ousting",
+                "toppled", "topples", "toppling", "overthrew", "overthrows", "overthrowing",
+                "resigned", "resigns", "resigning", "retired", "retires", "retiring", "quit", "quits", "quitting",
+            ],
+            "verb_military": [
+                "attacked", "attacks", "attacking", "struck", "strikes", "striking",
+                "bombed", "bombs", "bombing", "shelled", "shells", "shelling",
+                "fired", "fires", "firing", "shot", "shoots", "shooting",
+                "targeted", "targets", "targeting", "assaulted", "assaults", "assaulting",
+                "invaded", "invades", "invading", "occupied", "occupies", "occupying",
+                "seized", "seizes", "seizing", "captured", "captures", "capturing",
+                "conquered", "conquers", "conquering", "liberated", "liberates", "liberating",
+                "retreated", "retreats", "retreating", "withdrew", "withdraws", "withdrawing",
+                "deployed", "deploys", "deploying", "mobilized", "mobilised", "mobilizes", "mobilises", "mobilizing", "mobilising",
+                "escalated", "escalates", "escalating", "retaliated", "retaliates", "retaliating",
+                "fortified", "fortifies", "fortifying", "besieged", "besieges", "besieging",
+                "blockaded", "blockades", "blockading", "ambushed", "ambushes", "ambushing",
+                "raided", "raids", "raiding", "stormed", "storms", "storming",
+                "clashed", "clashes", "clashing", "fought", "fights", "fighting",
+                "battled", "battles", "battling", "killed", "kills", "killing",
+                "slew", "slays", "slaying", "murdered", "murders", "murdering",
+                "assassinated", "assassinates", "assassinating", "executed", "executes", "executing",
+                "massacred", "massacres", "massacring", "slaughtered", "slaughters", "slaughtering",
+                "wounded", "wounds", "wounding", "injured", "injures", "injuring",
+                "maimed", "maims", "maiming", "hurt", "hurts", "hurting",
+                "died", "dies", "dying", "perished", "perishes", "perishing",
+                "surrendered", "surrenders", "surrendering", "capitulated", "capitulates", "capitulating",
+                "ceased", "ceases", "ceasing",
+            ],
+            "verb_legal": [
+                "arrested", "arrests", "arresting", "detained", "detains", "detaining",
+                "jailed", "jails", "jailing", "imprisoned", "imprisons", "imprisoning",
+                "incarcerated", "incarcerates", "incarcerating", "released", "releases", "releasing",
+                "freed", "frees", "freeing", "charged", "charges", "charging",
+                "indicted", "indicts", "indicting", "prosecuted", "prosecutes", "prosecuting",
+                "tried", "tries", "trying", "convicted", "convicts", "convicting",
+                "acquitted", "acquits", "acquitting", "sentenced", "sentences", "sentencing",
+                "fined", "fines", "fining", "pardoned", "pardons", "pardoning",
+                "exonerated", "exonerates", "exonerating", "testified", "testifies", "testifying",
+                "sued", "sues", "suing", "settled", "settles", "settling",
+                "litigated", "litigates", "litigating", "extradited", "extradites", "extraditing",
+                "deported", "deports", "deporting", "subpoenaed", "subpoenas", "subpoenaing",
+            ],
+            "verb_economic": [
+                "invested", "invests", "investing", "divested", "divests", "divesting",
+                "acquired", "acquires", "acquiring", "merged", "merges", "merging",
+                "bought", "buys", "buying", "sold", "sells", "selling",
+                "traded", "trades", "trading", "profited", "profits", "profiting",
+                "earned", "earns", "earning", "spent", "spends", "spending",
+                "paid", "pays", "paying", "funded", "funds", "funding",
+                "financed", "finances", "financing", "borrowed", "borrows", "borrowing",
+                "lent", "lends", "lending", "defaulted", "defaults", "defaulting",
+                "restructured", "restructures", "restructuring", "downsized", "downsizes", "downsizing",
+                "expanded", "expands", "expanding", "grew", "grows", "growing",
+                "shrank", "shrinks", "shrinking", "surged", "surges", "surging",
+                "plunged", "plunges", "plunging", "soared", "soars", "soaring",
+                "plummeted", "plummets", "plummeting", "rallied", "rallies", "rallying",
+                "rose", "rises", "rising", "fell", "falls", "falling",
+                "increased", "increases", "increasing", "decreased", "decreases", "decreasing",
+                "doubled", "doubles", "doubling", "tripled", "triples", "tripling",
+                "halved", "halves", "halving", "slashed", "slashes", "slashing",
+                "cut", "cuts", "cutting", "raised", "raises", "raising",
+                "boosted", "boosts", "boosting", "lifted", "lifts", "lifting",
+                "lowered", "lowers", "lowering", "hired", "hires", "hiring",
+                "billed", "bills", "billing", "cost", "costs", "costing",
+            ],
+            "verb_discovery": [
+                "discovered", "discovers", "discovering", "found", "finds", "finding",
+                "uncovered", "uncovers", "uncovering", "unearthed", "unearths", "unearthing",
+                "detected", "detects", "detecting", "identified", "identifies", "identifying",
+                "located", "locates", "locating", "traced", "traces", "tracing",
+                "tracked", "tracks", "tracking", "monitored", "monitors", "monitoring",
+                "surveyed", "surveys", "surveying", "examined", "examines", "examining",
+                "analyzed", "analysed", "analyzes", "analyses", "analyzing", "analysing",
+                "investigated", "investigates", "investigating", "probed", "probes", "probing",
+                "scrutinized", "scrutinised", "scrutinizes", "scrutinises", "scrutinizing", "scrutinising",
+                "reviewed", "reviews", "reviewing", "audited", "audits", "auditing",
+                "inspected", "inspects", "inspecting", "verified", "verifies", "verifying",
+                "tested", "tests", "testing", "searched", "searches", "searching",
+                "recovered", "recovers", "recovering", "encountered", "encounters", "encountering",
+                "proved", "proves", "proving", "proven", "conducted", "conducts", "conducting",
+            ],
+            "verb_change": [
+                "changed", "changes", "changing", "altered", "alters", "altering",
+                "modified", "modifies", "modifying", "revised", "revises", "revising",
+                "updated", "updates", "updating", "upgraded", "upgrades", "upgrading",
+                "improved", "improves", "improving", "enhanced", "enhances", "enhancing",
+                "transformed", "transforms", "transforming", "converted", "converts", "converting",
+                "shifted", "shifts", "shifting", "transitioned", "transitions", "transitioning",
+                "evolved", "evolves", "evolving", "adapted", "adapts", "adapting",
+                "adjusted", "adjusts", "adjusting", "reformed", "reforms", "reforming",
+                "restructured", "restructures", "restructuring",
+                "reorganized", "reorganised", "reorganizes", "reorganises", "reorganizing", "reorganising",
+                "overhauled", "overhauls", "overhauling", "replaced", "replaces", "replacing",
+                "substituted", "substitutes", "substituting", "swapped", "swaps", "swapping",
+                "switched", "switches", "switching", "reversed", "reverses", "reversing",
+            ],
+            "verb_creation": [
+                "created", "creates", "creating", "built", "builds", "building",
+                "constructed", "constructs", "constructing", "developed", "develops", "developing",
+                "designed", "designs", "designing", "invented", "invents", "inventing",
+                "launched", "launches", "launching", "introduced", "introduces", "introducing",
+                "unveiled", "unveils", "unveiling", "opened", "opens", "opening",
+                "established", "establishes", "establishing", "founded", "founds", "founding",
+                "started", "starts", "starting", "began", "begins", "beginning",
+                "initiated", "initiates", "initiating", "closed", "closes", "closing",
+                "shut", "shuts", "shutting", "ended", "ends", "ending",
+                "terminated", "terminates", "terminating", "demolished", "demolishes", "demolishing",
+                "destroyed", "destroys", "destroying", "ruined", "ruins", "ruining",
+                "damaged", "damages", "damaging", "wrecked", "wrecks", "wrecking",
+                "devastated", "devastates", "devastating", "razed", "razes", "razing",
+                "leveled", "levelled", "levels", "leveling", "levelling",
+                "collapsed", "collapses", "collapsing", "imploded", "implodes", "imploding",
+                "exploded", "explodes", "exploding", "detonated", "detonates", "detonating",
+                "burned", "burnt", "burns", "burning", "flooded", "floods", "flooding",
+                "sank", "sinks", "sinking",
+            ],
+            "verb_movement": [
+                "moved", "moves", "moving", "traveled", "travelled", "travels", "traveling", "travelling",
+                "went", "goes", "going", "came", "comes", "coming",
+                "arrived", "arrives", "arriving", "departed", "departs", "departing",
+                "left", "leaves", "leaving", "returned", "returns", "returning",
+                "visited", "visits", "visiting", "toured", "tours", "touring",
+                "fled", "flees", "fleeing", "escaped", "escapes", "escaping",
+                "evacuated", "evacuates", "evacuating", "migrated", "migrates", "migrating",
+                "immigrated", "immigrates", "immigrating", "emigrated", "emigrates", "emigrating",
+                "expelled", "expels", "expelling", "exiled", "exiles", "exiling",
+                "banished", "banishes", "banishing", "crossed", "crosses", "crossing",
+                "entered", "enters", "entering", "exited", "exits", "exiting",
+                "landed", "lands", "landing", "crashed", "crashes", "crashing",
+                "collided", "collides", "colliding", "derailed", "derails", "derailing",
+                "capsized", "capsizes", "capsizing", "embarked", "embarks", "embarking",
+            ],
+            "verb_emotion": [
+                "feared", "fears", "fearing", "worried", "worries", "worrying",
+                "concerned", "concerns", "concerning", "alarmed", "alarms", "alarming",
+                "shocked", "shocks", "shocking", "surprised", "surprises", "surprising",
+                "stunned", "stuns", "stunning", "outraged", "outrages", "outraging",
+                "angered", "angers", "angering", "infuriated", "infuriates", "infuriating",
+                "pleased", "pleases", "pleasing", "delighted", "delights", "delighting",
+                "thrilled", "thrills", "thrilling", "excited", "excites", "exciting",
+                "relieved", "relieves", "relieving", "disappointed", "disappoints", "disappointing",
+                "frustrated", "frustrates", "frustrating", "dismayed", "dismays", "dismaying",
+                "mourned", "mourns", "mourning", "grieved", "grieves", "grieving",
+                "lamented", "laments", "lamenting", "cheered", "cheers", "cheering",
+                "welcomed", "welcomes", "welcoming",
+            ],
+            "verb_prevention": [
+                "prevented", "prevents", "preventing", "stopped", "stops", "stopping",
+                "halted", "halts", "halting", "barred", "bars", "barring",
+                "thwarted", "thwarts", "thwarting", "foiled", "foils", "foiling",
+                "averted", "averts", "averting", "avoided", "avoids", "avoiding",
+                "protected", "protects", "protecting", "shielded", "shields", "shielding",
+                "guarded", "guards", "guarding", "secured", "secures", "securing",
+                "safeguarded", "safeguards", "safeguarding", "preserved", "preserves", "preserving",
+                "saved", "saves", "saving", "rescued", "rescues", "rescuing",
+            ],
+            "verb_competition": [
+                "won", "wins", "winning", "lost", "loses", "losing",
+                "defeated", "defeats", "defeating", "beat", "beats", "beating",
+                "prevailed", "prevails", "prevailing", "triumphed", "triumphs", "triumphing",
+                "succeeded", "succeeds", "succeeding", "failed", "fails", "failing",
+                "achieved", "achieves", "achieving", "accomplished", "accomplishes", "accomplishing",
+                "completed", "completes", "completing", "finished", "finishes", "finishing",
+                "led", "leads", "leading", "trailed", "trails", "trailing",
+                "tied", "ties", "tying", "drew", "draws", "drawing",
+                "qualified", "qualifies", "qualifying", "eliminated", "eliminates", "eliminating",
+                "advanced", "advances", "advancing", "competed", "competes", "competing",
+            ],
+            "verb_medical": [
+                "diagnosed", "diagnoses", "diagnosing", "treated", "treats", "treating",
+                "cured", "cures", "curing", "healed", "heals", "healing",
+                "hospitalized", "hospitalised", "hospitalizes", "hospitalises", "hospitalizing", "hospitalising",
+                "operated", "operates", "operating", "vaccinated", "vaccinates", "vaccinating",
+                "infected", "infects", "infecting", "contracted", "contracts", "contracting",
+                "spread", "spreads", "spreading", "transmitted", "transmits", "transmitting",
+                "quarantined", "quarantines", "quarantining", "isolated", "isolates", "isolating",
+                "sickened", "sickens", "sickening", "suffered", "suffers", "suffering",
+            ],
+        }
+        for category, verbs in verb_categories.items():
+            pattern = r'\b(?:' + '|'.join(verbs) + r')\b'
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                add_highlight(match.start(), match.end(), category)
 
         # === ENTITIES (clickable) ===
 
@@ -2357,7 +3693,9 @@ class NewsAggregatorApp:
             search_term = phrase
 
             # Check known entity databases (exact match)
-            if phrase_lower in self.events:
+            if phrase_lower in self.leaders:
+                category = "people"
+            elif phrase_lower in self.events:
                 category = "events"
             elif phrase_lower in self.military:
                 category = "military"
@@ -2413,14 +3751,19 @@ class NewsAggregatorApp:
             elif len(words) == 1:
                 word = words[0]
                 word_lower = word.lower()
-                # Only highlight if it's a known entity
                 if word_lower in self.countries:
                     category = "countries"
                 elif word_lower in self.places:
                     category = "places"
                 elif word_lower in self.organizations:
                     category = "organizations"
-                # Otherwise skip single unknown words
+                elif not at_sentence_start:
+                    # Mid-sentence capitalization = proper noun
+                    category = "proper_nouns"
+
+            # Fallback: mid-sentence capitalized phrase not matching any category
+            if not category and not at_sentence_start and len(words) >= 1:
+                category = "proper_nouns"
 
             # Apply highlight if category was determined
             if category:
@@ -2442,8 +3785,12 @@ class NewsAggregatorApp:
                 return
 
     def _update_status(self, message: str):
-        """Update the status bar."""
-        self.status_bar.configure(text=f">> {message.upper()}")
+        """Update the status bar with a real message, pausing idle cycling."""
+        self.status_bar.configure(text=f"... {message.upper()}")
+        self._idle_active = False
+        self._idle_last_real_status = message.upper()
+        # Resume idle cycling after ~5 seconds (150 frames at 30fps)
+        self._idle_pause_until = self._anim_frame + 150
 
     def _on_key_up(self, event):
         """Handle Up arrow key - select previous article."""
@@ -2686,6 +4033,11 @@ class NewsAggregatorApp:
         """Start the unified animation loop."""
         self._stop_animation_loop()
         self._anim_frame = 0
+        # Reset idle status cycling to start fresh
+        self._idle_active = True
+        self._idle_pause_until = 0
+        self._idle_char_pos = 0
+        self._idle_display_frames = 0
         self._anim_tick()
 
     def _stop_animation_loop(self):
@@ -2755,45 +4107,117 @@ class NewsAggregatorApp:
         self.title_label.configure(fg=color)
 
     def _draw_title_neon_line(self):
-        """Draw animated neon sweep line under title bar."""
-        canvas = self.title_neon_line
-        w = canvas.winfo_width()
-        if w < 10:
+        """Draw two animated neon sweeps (cyan + magenta) chasing around window frame."""
+        top = self._border_top
+        bottom = self._border_bottom
+        left = self._border_left
+        right = self._border_right
+
+        w = top.winfo_width()
+        h = left.winfo_height()
+        if w < 10 or h < 10:
             return
 
-        # Ping-pong: sweep right then left over 240 frames (~8s round trip)
-        cycle = self._anim_frame % 240
-        pos = cycle / 120.0 if cycle < 120 else 2.0 - cycle / 120.0  # 0->1->0
-        center_x = int(pos * w)
+        t = DARK_THEME
+        thickness = 2
 
-        # Reuse existing rectangles if already created, otherwise create them
-        segment_count = 60
-        seg_w = max(1, w // segment_count)
+        # Full cycle = 300 frames (~10s)
+        cycle = self._anim_frame % 300
+        pos1 = cycle / 300.0  # Cyan wave position (0 to 1)
+        pos2 = (pos1 + 0.5) % 1.0  # Magenta wave, opposite side
 
-        if not hasattr(self, '_neon_line_ids') or len(self._neon_line_ids) != segment_count:
-            canvas.delete("all")
-            self._neon_line_ids = []
-            for i in range(segment_count):
-                x = i * seg_w
-                rid = canvas.create_rectangle(x, 0, x + seg_w, 2, fill=DARK_THEME["magenta_dim"], outline="")
-                self._neon_line_ids.append(rid)
+        perimeter = 2 * w + 2 * h
 
-        for i, rid in enumerate(self._neon_line_ids):
-            x = i * seg_w
-            dist = abs(x - center_x) / max(w, 1)
-            brightness = max(0, 1.0 - dist * 4)
-            color = self._lerp_color(DARK_THEME["magenta_dim"], DARK_THEME["magenta"], brightness)
-            canvas.itemconfigure(rid, fill=color)
+        # Initialize segments on resize
+        if not hasattr(self, '_border_seg_count') or self._border_seg_count != (w, h):
+            self._border_seg_count = (w, h)
+            for canvas in [top, bottom, left, right]:
+                canvas.delete("all")
+            self._border_ids = {'top': [], 'bottom': [], 'left': [], 'right': []}
+
+            # Top: left to right
+            for x in range(0, w, 4):
+                rid = top.create_rectangle(x, 0, x + 4, thickness, fill=t["bg"], outline="")
+                self._border_ids['top'].append((rid, x / perimeter))
+
+            # Right: top to bottom
+            for y in range(0, h, 4):
+                rid = right.create_rectangle(0, y, thickness, y + 4, fill=t["bg"], outline="")
+                self._border_ids['right'].append((rid, (w + y) / perimeter))
+
+            # Bottom: right to left
+            for x in range(w, 0, -4):
+                rid = bottom.create_rectangle(x - 4, 0, x, thickness, fill=t["bg"], outline="")
+                self._border_ids['bottom'].append((rid, (w + h + (w - x)) / perimeter))
+
+            # Left: bottom to top
+            for y in range(h, 0, -4):
+                rid = left.create_rectangle(0, y - 4, thickness, y, fill=t["bg"], outline="")
+                self._border_ids['left'].append((rid, (2 * w + h + (h - y)) / perimeter))
+
+        # Update all segments with dual wave colors
+        base_color = t["bg"]
+        for side in ['top', 'right', 'bottom', 'left']:
+            canvas = {'top': top, 'right': right, 'bottom': bottom, 'left': left}[side]
+            for rid, seg_pos in self._border_ids[side]:
+                # Distance to cyan wave
+                dist1 = min(abs(seg_pos - pos1), 1.0 - abs(seg_pos - pos1))
+                bright1 = max(0, 1.0 - dist1 * 8)
+
+                # Distance to magenta wave
+                dist2 = min(abs(seg_pos - pos2), 1.0 - abs(seg_pos - pos2))
+                bright2 = max(0, 1.0 - dist2 * 8)
+
+                # Blend colors
+                if bright1 > 0 and bright2 > 0:
+                    # Both waves overlap - blend to white-ish
+                    color = self._lerp_color(t["cyan"], t["magenta"], bright2 / (bright1 + bright2))
+                    color = self._lerp_color(base_color, color, max(bright1, bright2))
+                elif bright1 > 0:
+                    color = self._lerp_color(base_color, t["cyan"], bright1)
+                elif bright2 > 0:
+                    color = self._lerp_color(base_color, t["magenta"], bright2)
+                else:
+                    color = base_color
+
+                canvas.itemconfigure(rid, fill=color)
 
     def _animate_status_bar(self):
-        """Blink the cursor and update the clock."""
+        """Blink the cursor, update clock, and cycle idle messages."""
+        # Cursor blink
         visible = (self._anim_frame // 16) % 2 == 0
         self._cursor_label.configure(
             fg=DARK_THEME["cyan"] if visible else DARK_THEME["status_bg"]
         )
-        if self._anim_frame % 30 == 0:
-            now = datetime.now().strftime("%H:%M:%S")
-            self._clock_label.configure(text=now)
+
+        # Check if we should resume idle cycling
+        if not self._idle_active and self._anim_frame >= self._idle_pause_until:
+            self._idle_active = True
+            self._idle_char_pos = 0
+            self._idle_display_frames = 0
+
+        # Idle message typewriter cycling
+        if self._idle_active:
+            current_message = self._idle_messages[self._idle_message_index]
+            full_text = f"... {current_message}"  # Leading dots only
+
+            if self._idle_char_pos < len(full_text):
+                # Typewriter effect: add 4 characters every frame (fast typing)
+                self._idle_char_pos = min(self._idle_char_pos + 4, len(full_text))
+                partial = full_text[:self._idle_char_pos]
+                self.status_bar.configure(text=partial)
+            else:
+                # Message complete, display for random interval then move to next
+                self._idle_display_frames += 1
+                # Random intervals: 3s, 5s, 7s, 9s, 12s (at 30fps)
+                if not hasattr(self, '_idle_current_duration'):
+                    self._idle_current_duration = random.choice([90, 150, 210, 270, 360])
+                if self._idle_display_frames > self._idle_current_duration:
+                    # Move to next message with new random duration
+                    self._idle_message_index = (self._idle_message_index + 1) % len(self._idle_messages)
+                    self._idle_char_pos = 0
+                    self._idle_display_frames = 0
+                    self._idle_current_duration = random.choice([90, 150, 210, 270, 360])
 
     # ── Hover glow (Feature 3) ────────────────────────────────
 
@@ -2994,19 +4418,92 @@ class NewsAggregatorApp:
     def _finish_typewriter(self):
         """Finalize typewriter — add related articles."""
         self._typewriter_active = False
+        # Clear previous related article targets
+        self._related_article_targets = {}
+
         # Related articles
         article_id = self._typewriter_article_id
         if hasattr(self, "cluster_map") and article_id in self.cluster_map:
             cluster = self.cluster_map[article_id]
             if cluster["count"] > 1:
                 self.preview_text.configure(state=tk.NORMAL)
-                self.preview_text.insert(tk.END, "\n\n─── RELATED ARTICLES ───\n\n")
-                for related in cluster["articles"][1:]:
+                # Header in yellow with instruction
+                start = self.preview_text.index(tk.END)
+                self.preview_text.insert(tk.END, "\n\n─── RELATED ARTICLES ───\n───── Click to Read ─────\n\n")
+                self.preview_text.tag_add("related_header", start, tk.END)
+                self.preview_text.tag_add("related_header", start, tk.END)
+
+                # Related items in yellow (clickable)
+                for i, related in enumerate(cluster["articles"][1:]):
                     source = related.get("feed_name", "Unknown")
                     score = related.get("noise_score", 0)
-                    self.preview_text.insert(tk.END, f"  [{source}] {related['title']} ({score})\n")
+                    related_id = related.get("id")
+
+                    # Create unique tag for this related article
+                    tag_name = f"related_link_{related_id}"
+
+                    # Store the article ID for this tag
+                    self._related_article_targets[tag_name] = related_id
+
+                    # Configure tag appearance (no underline)
+                    self.preview_text.tag_configure(
+                        tag_name,
+                        foreground=DARK_THEME["neon_yellow"]
+                    )
+
+                    # Get position before insert
+                    line_start = self.preview_text.index("end-1c")
+
+                    # Insert the text
+                    text = f"  [{source}] {related['title']} ({score})\n"
+                    self.preview_text.insert(tk.END, text)
+
+                    # Apply tag to the inserted text
+                    line_end = self.preview_text.index("end-1c")
+                    self.preview_text.tag_add(tag_name, line_start, line_end)
+
                 self.preview_text.configure(state=tk.DISABLED)
+
+                # Bind handlers for related links
+                self.preview_text.bind("<Button-1>", self._on_preview_click, add=True)
+                self.preview_text.bind("<Motion>", self._on_preview_motion, add=True)
+
         self._typewriter_article_id = None
+
+    def _on_preview_click(self, event):
+        """Handle clicks on the preview text, checking for related article links."""
+        # Get the index at click position
+        index = self.preview_text.index(f"@{event.x},{event.y}")
+        # Check all tags at this position
+        tags = self.preview_text.tag_names(index)
+        for tag in tags:
+            if tag.startswith("related_link_") and tag in self._related_article_targets:
+                article_id = self._related_article_targets[tag]
+                self._navigate_to_article(article_id)
+                return
+
+    def _on_preview_motion(self, event):
+        """Change cursor when hovering over related article links."""
+        index = self.preview_text.index(f"@{event.x},{event.y}")
+        tags = self.preview_text.tag_names(index)
+        is_link = any(tag.startswith("related_link_") for tag in tags)
+        self.preview_text.configure(cursor="hand2" if is_link else "")
+
+    def _navigate_to_article(self, article_id):
+        """Navigate to and display a specific article."""
+        if not article_id:
+            return
+        # Find and select the article in the tree
+        for item in self.articles_tree.get_children():
+            if int(item) == article_id:
+                self.articles_tree.selection_set(item)
+                self.articles_tree.see(item)
+                self._on_article_select(None)
+                return
+        # Article not in current view - fetch and display directly
+        article = self.storage.get_article(article_id)
+        if article:
+            self._display_article(article)
 
     # ── Boot sequence ───────────────────────────────────────────
 
@@ -3020,11 +4517,11 @@ class NewsAggregatorApp:
         tk.Misc.lift(self._boot_overlay)
 
         self._boot_lines = [
-            ">> WIREFEEDR v1.8",
-            ">> INITIALIZING NEURAL FEED PARSER...",
-            ">> CONNECTING TO NEWS GRID...",
-            ">> BIAS DETECTION MATRIX: ONLINE",
-            ">> SIGNAL LOCKED. WELCOME, OPERATOR.",
+            "WIREFEEDR v2.0",
+            "INITIALIZING NEURAL FEED PARSER",
+            "CONNECTING TO NEWS GRID",
+            "BIAS DETECTION MATRIX: ONLINE",
+            "SIGNAL LOCKED. WELCOME, OPERATOR.",
         ]
         self._boot_step = 0
         self.root.after(200, self._boot_next_line)
@@ -3307,3 +4804,55 @@ class FilterKeywordsDialog:
             self.storage.remove_filter_keyword(keyword_id)
             self.changed = True
             self._refresh()
+
+
+SINGLE_INSTANCE_PORT = 47391  # Arbitrary port for instance communication
+
+
+def signal_existing_instance_to_close():
+    """Try to signal any existing instance to close."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        sock.connect(('127.0.0.1', SINGLE_INSTANCE_PORT))
+        sock.send(b'CLOSE')
+        sock.close()
+        import time
+        time.sleep(0.5)  # Give existing instance time to close
+    except (ConnectionRefusedError, socket.timeout, OSError):
+        pass  # No existing instance
+
+
+def start_instance_listener(root):
+    """Start a listener thread that closes the app when signaled."""
+    def listener():
+        try:
+            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server.bind(('127.0.0.1', SINGLE_INSTANCE_PORT))
+            server.listen(1)
+            server.settimeout(1)
+            while True:
+                try:
+                    conn, addr = server.accept()
+                    data = conn.recv(1024)
+                    conn.close()
+                    if data == b'CLOSE':
+                        root.after(0, root.destroy)
+                        break
+                except socket.timeout:
+                    if not root.winfo_exists():
+                        break
+        except OSError:
+            pass  # Port in use or other error
+
+    thread = threading.Thread(target=listener, daemon=True)
+    thread.start()
+
+
+if __name__ == "__main__":
+    signal_existing_instance_to_close()
+    root = tk.Tk()
+    start_instance_listener(root)
+    app = NewsAggregatorApp(root)
+    root.mainloop()

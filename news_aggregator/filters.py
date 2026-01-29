@@ -394,8 +394,13 @@ class FilterEngine:
         """Extract significant keywords from text, removing stop words."""
         # Lowercase and extract words
         words = re.findall(r'\b[a-z]{3,}\b', text.lower())
-        # Remove stop words and return as set
-        return {w for w in words if w not in STOP_WORDS}
+        # Filter stop words
+        keywords = {w for w in words if w not in STOP_WORDS}
+        # Also add bigrams (consecutive word pairs) for better matching
+        filtered_words = [w for w in words if w not in STOP_WORDS]
+        for i in range(len(filtered_words) - 1):
+            keywords.add(f"{filtered_words[i]}_{filtered_words[i+1]}")
+        return keywords
 
     def _calculate_similarity(self, keywords1: set, keywords2: set) -> float:
         """Calculate Jaccard similarity between two keyword sets."""
@@ -405,7 +410,7 @@ class FilterEngine:
         union = len(keywords1 | keywords2)
         return intersection / union if union > 0 else 0.0
 
-    def cluster_articles(self, articles: List[dict], similarity_threshold: float = 0.3) -> List[dict]:
+    def cluster_articles(self, articles: List[dict], similarity_threshold: float = 0.06) -> List[dict]:
         """
         Cluster similar articles together.
 

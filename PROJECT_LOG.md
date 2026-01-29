@@ -4,7 +4,7 @@
 Create a desktop news aggregator that delivers factual news via RSS feeds while filtering out sensationalism, opinion pieces, and propaganda.
 
 **Last Updated:** 2026-01-28
-**Status:** v1.9 - Cyberpunk UI Overhaul (Borderless, Animations, Taskbar Icon)
+**Status:** v2.1 - UI Overhaul & Neon Border Frame
 
 ---
 
@@ -553,6 +553,68 @@ _play_boot_sequence()     # Typewriter intro → starts animation loop
 **Entry Point Change (`main.py`):**
 - `app._owner.mainloop()` — mainloop runs on hidden owner, not the Toplevel
 
+### Session 14 - 2026-01-28: Comprehensive Highlighting & UI Polish
+
+**Highlighting System Overhaul:**
+- All mid-sentence capitalized words now highlighted as proper nouns (electric mint #00ffa0)
+- Expanded number patterns: ordinals (1st, 250th), times, ranges, decades, units, K/M/B, Roman numerals
+- 17 color-coded verb categories with thematic colors (crimson=accusation, gold=legal, forest green=economic)
+- British spelling variants for all verbs (criticised, organised, recognised, etc.)
+- ~600 verbs across categories with -ing forms
+
+**Entity Database Expansion:**
+- Tech acronyms: AI, ML, LLM, VR, blockchain, cybersecurity terms (~100 entries)
+- Tech companies: expanded from ~40 to ~200 (AI companies, semiconductors, fintech, etc.)
+- Heads of state: 400+ world leaders with name variants (current + historical)
+- US historical figures: all presidents, founding fathers, civil rights leaders, Supreme Court justices, military leaders, congressional leaders
+
+**UI Improvements:**
+- Darker backgrounds (#020206) for maximum neon contrast
+- "X/Y READ" counter in Articles panel header
+- Idle status cycling with 32 cyberpunk messages ("RETICULATING SPLINES...", etc.)
+- Typewriter effect on idle status messages
+
+**Fixes:**
+- Arrow key navigation bound directly to treeview (fixes skip issue)
+- Auto-cleanup: articles purged every 48 hours (was manual)
+- Removed OPML from roadmap (out of scope)
+
+### Session 15 - 2026-01-28: UI Overhaul & Neon Border Frame
+
+**Menu Consolidation:**
+- Removed File, Feeds, Articles menus — all moved to unified Settings menu
+- Settings contains: Feeds submenu, Articles submenu, Recency, Per Source, Cluster Topics, Filter Keywords
+- Title bar removed — window controls (−, □, ✕) moved to toolbar
+
+**Toolbar Redesign:**
+- Left: Refresh, Mark All Read, Show Read checkbox
+- Right: Settings button, Filter (real-time), Clear, window controls
+- Drag-to-move window via toolbar
+
+**Neon Border Frame:**
+- 2px animated border around entire window (replaces top-only sweep line)
+- Two waves chase each other: cyan and magenta, 180° apart
+- ~10 second full cycle around perimeter
+- Segments recalculate on resize
+
+**UI Polish:**
+- Scrollbars: bright cyan thumb, magenta on hover
+- Progress bar: 20 segmented blocks, magenta→cyan gradient, percentage readout
+- Status bar: "..." prefix typed out, 110 cyberpunk messages, random intervals (3-12s)
+- WIREFEEDR logo + v2.0 moved to bottom of Feeds panel
+- Summary panel scrollbar fixed (now on right side)
+
+**Clustering & Related Articles:**
+- More aggressive clustering (threshold 0.06, bigrams added)
+- Related articles highlighted in neon yellow
+- Clickable related articles — click to navigate to that article
+- "Click to Read" instruction under RELATED ARTICLES header
+
+**Other Changes:**
+- Auto-refresh: 1 hour (was 3 hours)
+- Single instance: new launch closes previous instance (socket-based)
+- Real-time filter: type to filter articles instantly
+
 ---
 
 ## Potential Future Enhancements
@@ -570,8 +632,8 @@ These features reduce daily article count to a manageable ~20-30 articles.
 - [x] **Ticker tape** - Scrolling unread headlines with click/hover interaction (Session 12)
 - [x] **Borderless window** - Custom title bar, drag-to-move, taskbar icon (Session 13)
 - [x] **Pulsing border animations** - Sine-wave neon borders, title glow, sweep line (Session 13)
-- [ ] **GitHub backup** - Push to repository for version control
-- [ ] OPML import/export for feed lists
+- [x] **GitHub backup** - Repository at github.com/kcbowlan/wirefeedr
+- [ ] ~~OPML import/export~~ - Out of scope (convenience, not quality filtering)
 - [ ] Feed folders/grouping
 - [ ] Article tagging/bookmarking
 - [ ] Notification for new articles

@@ -164,6 +164,16 @@ class NewsAggregatorApp:
             "AUTHENTICATING PEER CONNECTIONS",
             "LOAD BALANCING DATA STREAMS",
             "CACHING FREQUENTLY ACCESSED NODES",
+            "ESTABLISHING TOR CIRCUIT",
+            "BOUNCING THROUGH RELAYS",
+            "SPOOFING MAC ADDRESS",
+            "INJECTING PACKET HEADERS",
+            "FRAGMENTING DATAGRAMS",
+            "REASSEMBLING TCP STREAM",
+            "PROBING OPEN PORTS",
+            "SNIFFING TRAFFIC PATTERNS",
+            "INTERCEPTING CLEARTEXT",
+            "DECAPSULATING VPN TUNNEL",
             # Data processing
             "NORMALIZING INPUT VECTORS",
             "TOKENIZING HEADLINE CORPUS",
@@ -175,6 +185,16 @@ class NewsAggregatorApp:
             "SERIALIZING STATE OBJECTS",
             "GARBAGE COLLECTING OLD REFS",
             "OPTIMIZING QUERY PLANS",
+            "SHARDING DISTRIBUTED CACHE",
+            "INDEXING INVERTED TREES",
+            "BALANCING B-TREE NODES",
+            "PRUNING DEAD BRANCHES",
+            "VACUUMING DATABASE PAGES",
+            "CHECKPOINTING WAL SEGMENTS",
+            "COMPACTING STORAGE BLOCKS",
+            "DEFRAGMENTING HEAP SPACE",
+            "RECLAIMING ORPHAN INODES",
+            "FSYNCING DIRTY BUFFERS",
             # Analysis operations
             "TRAINING CLASSIFIER WEIGHTS",
             "EVALUATING MODEL ACCURACY",
@@ -186,6 +206,16 @@ class NewsAggregatorApp:
             "MEASURING ENTROPY LEVELS",
             "CALCULATING TRUST SCORES",
             "BENCHMARKING THROUGHPUT",
+            "EXTRACTING NAMED ENTITIES",
+            "PARSING DEPENDENCY TREES",
+            "RESOLVING COREFERENCES",
+            "DETECTING STANCE POLARITY",
+            "SCORING READABILITY INDEX",
+            "ANALYZING LEXICAL DENSITY",
+            "COMPUTING TF-IDF WEIGHTS",
+            "BUILDING WORD EMBEDDINGS",
+            "FINE-TUNING ATTENTION HEADS",
+            "BACKPROPAGATING GRADIENTS",
             # Security operations
             "ROTATING ENCRYPTION KEYS",
             "SCANNING FOR INTRUSIONS",
@@ -197,7 +227,17 @@ class NewsAggregatorApp:
             "PATCHING KNOWN VULNERABILITIES",
             "ENFORCING RATE LIMITS",
             "QUARANTINING SUSPECT PAYLOADS",
-            # Cyberpunk flavor
+            "VERIFYING DIGITAL SIGNATURES",
+            "SALTING PASSWORD HASHES",
+            "GENERATING ENTROPY POOL",
+            "SEEDING RANDOM ORACLE",
+            "ESTABLISHING ZERO KNOWLEDGE",
+            "COMPUTING MERKLE ROOTS",
+            "SIGNING BLOCKCHAIN TRANSACTION",
+            "VALIDATING SMART CONTRACT",
+            "REVOKING COMPROMISED CERTS",
+            "ROTATING SECRET KEYS",
+            # Cyberpunk flavor - Neuromancer
             "JACKING INTO THE MATRIX",
             "GHOSTING THROUGH ICE",
             "FLATLINE RECOVERY PROTOCOL",
@@ -213,11 +253,76 @@ class NewsAggregatorApp:
             "SCANNING FOR RAZORGIRLS",
             "CONSULTING STREET SAMURAI DB",
             "BOOTING ICEBREAKER SUITE",
-            "INJECTING COMBAT DRUGS",
-            "CALIBRATING TARGETING RETICLE",
             "MONITORING MEGACORP CHATTER",
             "INTERCEPTING ZAIBATSU COMMS",
             "DECRYPTING YAKUZA PROTOCOLS",
+            "RUNNING INTRUSION COUNTERMEASURES",
+            "DODGING ATTACK BARRIERS",
+            # Cyberpunk flavor - Blade Runner
+            "ANALYZING VOIGHT-KAMPFF RESULTS",
+            "SCANNING FOR REPLICANTS",
+            "ENHANCING ESPER PHOTOGRAPH",
+            "TRACKING NEXUS-6 SIGNATURES",
+            "ACCESSING TYRELL ARCHIVES",
+            "DECODING ORIGAMI MESSAGE",
+            "SEARCHING OFF-WORLD COLONIES",
+            "RETIRING ROGUE UNITS",
+            "PARSING MEMORY IMPLANTS",
+            "VERIFYING BASELINE TEST",
+            # Cyberpunk flavor - Ghost in the Shell
+            "DIVING INTO THE NET",
+            "SCANNING GHOST SIGNATURES",
+            "TRACING PUPPET MASTER",
+            "HACKING CYBERBRAIN",
+            "UPLOADING TO SHELL",
+            "SYNCHRONIZING TACHIKOMAS",
+            "DEPLOYING THERMOPTIC CAMO",
+            "ANALYZING STAND ALONE COMPLEX",
+            "INTERCEPTING SECTION 9 COMMS",
+            "GHOSTHACKING BARRIER MAZE",
+            # Cyberpunk flavor - Misc
+            "SLOTTING SKILLSOFT CHIP",
+            "JACKING CYBERDECK INTERFACE",
+            "BURNING CHROME BARRIERS",
+            "RUNNING DAEMON PROCESSES",
+            "SPAWNING ICE BREAKERS",
+            "EXECUTING ZERO-DAY EXPLOIT",
+            "SPOOFING BIOMETRIC SCAN",
+            "FORGING DIGITAL IDENTITY",
+            "LAUNDERING CRYPTO FUNDS",
+            "ERASING DIGITAL FOOTPRINT",
+            "PLANTING LOGIC BOMB",
+            "ACTIVATING KILLSWITCH",
+            "RELEASING POLYMORPHIC VIRUS",
+            "DEPLOYING RANSOMWARE PAYLOAD",
+            "HIJACKING BOTNET SWARM",
+            "POISONING DNS CACHE",
+            "INJECTING SQL PAYLOAD",
+            "ESCALATING PRIVILEGES",
+            "PIVOTING THROUGH NETWORK",
+            "EXFILTRATING SENSITIVE DATA",
+            # Hacker culture
+            "READING THE JARGON FILE",
+            "INVOKING HACKTIVIST PROTOCOL",
+            "CONSULTING THE MENTOR",
+            "ENTERING GIBSON CYBERSPACE",
+            "LOADING ANARCHIST COOKBOOK",
+            "RUNNING WARDIALERS",
+            "PHREAKING PHONE SYSTEMS",
+            "CRACKING WEP ENCRYPTION",
+            "RAINBOW TABLE LOOKUP",
+            "BRUTE FORCING CREDENTIALS",
+            # Retro computing
+            "LOADING PUNCH CARDS",
+            "REWINDING MAGNETIC TAPE",
+            "ALIGNING DISK HEADS",
+            "BOOTING FROM FLOPPY",
+            "DEFRAGMENTING FAT TABLE",
+            "CLEARING CMOS BATTERY",
+            "UPDATING BIOS FIRMWARE",
+            "EXPANDING CONVENTIONAL MEMORY",
+            "LOADING HIMEM.SYS",
+            "RUNNING MEMTEST86",
             # Misc technical
             "SPINNING UP WORKER THREADS",
             "FLUSHING MEMORY BUFFERS",
@@ -229,6 +334,58 @@ class NewsAggregatorApp:
             "REPLAYING EVENT LOG",
             "MERGING CONFLICT BRANCHES",
             "ROLLING BACK FAILED TRANSACTION",
+            "FORKING CHILD PROCESS",
+            "JOINING WORKER POOL",
+            "ACQUIRING MUTEX LOCK",
+            "RELEASING SEMAPHORE",
+            "SIGNALING CONDITION VARIABLE",
+            "POLLING EPOLL DESCRIPTOR",
+            "AWAITING FUTEX WAKE",
+            "YIELDING TIME SLICE",
+            "PREEMPTING LOW PRIORITY",
+            "SCHEDULING REAL-TIME TASK",
+            # AI/ML operations
+            "TRAINING NEURAL NETWORK",
+            "ADJUSTING HYPERPARAMETERS",
+            "MINIMIZING LOSS FUNCTION",
+            "APPLYING DROPOUT MASK",
+            "NORMALIZING BATCH INPUTS",
+            "COMPUTING ATTENTION SCORES",
+            "GENERATING EMBEDDINGS",
+            "SAMPLING LATENT SPACE",
+            "DECODING TRANSFORMER OUTPUT",
+            "CALIBRATING CONFIDENCE SCORES",
+            "RUNNING INFERENCE PASS",
+            "QUANTIZING MODEL WEIGHTS",
+            "PRUNING SPARSE CONNECTIONS",
+            "DISTILLING KNOWLEDGE",
+            "FINE-TUNING FOUNDATION MODEL",
+            "PROMPTING LANGUAGE MODEL",
+            "ALIGNING WITH HUMAN FEEDBACK",
+            "REDUCING HALLUCINATIONS",
+            "GROUNDING IN REALITY",
+            "VERIFYING FACTUAL CLAIMS",
+            # News/media specific
+            "FILTERING EDITORIAL BIAS",
+            "DETECTING SPIN PATTERNS",
+            "MEASURING HEADLINE VALENCE",
+            "ANALYZING FRAMING EFFECTS",
+            "TRACKING NARRATIVE SHIFT",
+            "IDENTIFYING ASTROTURF",
+            "FLAGGING COORDINATED INAUTHENTIC",
+            "SCORING SOURCE CREDIBILITY",
+            "CROSS-CHECKING WIRE SERVICES",
+            "VERIFYING PRIMARY SOURCES",
+            "DEBUNKING VIRAL CLAIMS",
+            "TRACING INFORMATION CASCADE",
+            "MAPPING ECHO CHAMBERS",
+            "DETECTING FILTER BUBBLES",
+            "ANALYZING ENGAGEMENT BAIT",
+            "SCORING HEADLINE ACCURACY",
+            "MEASURING CONTEXT COLLAPSE",
+            "TRACKING AMPLIFICATION NETWORK",
+            "IDENTIFYING BOT ACTIVITY",
+            "FLAGGING SYNTHETIC MEDIA",
             # Status messages
             "ALL SYSTEMS NOMINAL",
             "OPERATING WITHIN PARAMETERS",
@@ -240,6 +397,16 @@ class NewsAggregatorApp:
             "CHANNELS CLEAR",
             "HOLDING PATTERN",
             "MONITORING ACTIVE",
+            "STANDING BY FOR ORDERS",
+            "PERIMETER SECURE",
+            "THREAT LEVEL MINIMAL",
+            "COGNITIVE LOAD NOMINAL",
+            "BANDWIDTH SUFFICIENT",
+            "LATENCY ACCEPTABLE",
+            "UPTIME 99.97 PERCENT",
+            "ZERO ERRORS LOGGED",
+            "QUEUE DEPTH STABLE",
+            "ENTROPY POOL FULL",
         ]
         self._idle_active = True
         self._idle_message_index = 0
@@ -760,31 +927,35 @@ class NewsAggregatorApp:
         branding_frame = tk.Frame(feeds_frame, bg=DARK_THEME["bg"])
         branding_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(5, 0))
 
-        # Load logo
+        # Load logo (use taskbar icon) - clickable link to Patreon
         try:
-            logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "LOGO.png")
+            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "icon_preview.png")
             self._logo_image = tk.PhotoImage(file=logo_path)
             w, h = self._logo_image.width(), self._logo_image.height()
-            if h > 20:
-                factor = max(1, h // 20)
+            if h > 28:
+                factor = max(1, h // 28)
                 self._logo_image = self._logo_image.subsample(factor, factor)
-            logo_label = tk.Label(branding_frame, image=self._logo_image, bg=DARK_THEME["bg"])
-            logo_label.pack(side=tk.LEFT, padx=(0, 4))
+            logo_label = tk.Label(branding_frame, image=self._logo_image, bg=DARK_THEME["bg"], cursor="hand2")
+            logo_label.pack(side=tk.LEFT, padx=(0, 6))
+            logo_label.bind("<Button-1>", lambda e: webbrowser.open("https://www.patreon.com/kcbowlan"))
+            logo_label.bind("<Enter>", lambda e: self._show_logo_tooltip(e))
+            logo_label.bind("<Leave>", lambda e: self._hide_logo_tooltip(e))
         except Exception:
             pass
 
+        # Large WIREFEEDR text to span panel
         self.title_label = tk.Label(
             branding_frame, text="WIREFEEDR",
             bg=DARK_THEME["bg"], fg=DARK_THEME["cyan"],
-            font=("Consolas", 10, "bold")
+            font=("Consolas", 16, "bold")
         )
         self.title_label.pack(side=tk.LEFT)
 
         tk.Label(
-            branding_frame, text="v2.0",
+            branding_frame, text="v2.1",
             bg=DARK_THEME["bg"], fg=DARK_THEME["fg_secondary"],
-            font=("Consolas", 8)
-        ).pack(side=tk.LEFT, padx=(3, 0))
+            font=("Consolas", 9)
+        ).pack(side=tk.LEFT, padx=(4, 0), pady=(8, 0))
 
         # Feeds treeview
         self.feeds_tree = ttk.Treeview(feeds_frame, selectmode="browse", show="tree")
@@ -4547,6 +4718,29 @@ class NewsAggregatorApp:
         """Remove boot overlay and start animations."""
         self._boot_overlay.destroy()
         self._start_animation_loop()
+
+    # ── Tooltip for logo ────────────────────────────────────────
+
+    def _show_logo_tooltip(self, event):
+        """Show Patreon tooltip on logo hover."""
+        self._logo_tooltip = tk.Toplevel(self.root)
+        self._logo_tooltip.wm_overrideredirect(True)
+        self._logo_tooltip.wm_geometry(f"+{event.x_root + 10}+{event.y_root + 10}")
+        label = tk.Label(
+            self._logo_tooltip, text="Patreon",
+            bg=DARK_THEME["bg_secondary"], fg=DARK_THEME["cyan"],
+            font=("Consolas", 9), padx=6, pady=2,
+            relief=tk.SOLID, borderwidth=1
+        )
+        label.pack()
+        event.widget.configure(bg=DARK_THEME["bg_secondary"])
+
+    def _hide_logo_tooltip(self, event):
+        """Hide Patreon tooltip."""
+        if hasattr(self, '_logo_tooltip') and self._logo_tooltip:
+            self._logo_tooltip.destroy()
+            self._logo_tooltip = None
+        event.widget.configure(bg=DARK_THEME["bg"])
 
     # ── Window close ────────────────────────────────────────────
 

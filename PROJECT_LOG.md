@@ -615,6 +615,18 @@ _play_boot_sequence()     # Typewriter intro → starts animation loop
 - Single instance: new launch closes previous instance (socket-based)
 - Real-time filter: type to filter articles instantly
 
+**Final Polish:**
+- Logo: switched to taskbar icon (icon_preview.png), enlarged to 28px
+- Logo clickable: opens Patreon with "Patreon" tooltip on hover
+- WIREFEEDR text: 16pt bold to span Feeds panel width
+- Status messages: expanded from 110 to 270 with new categories:
+  - Blade Runner (Voight-Kampff, replicants, Nexus-6)
+  - Ghost in the Shell (cyberbrains, Section 9, thermoptic camo)
+  - Hacker culture (phreaking, wardialers, rainbow tables)
+  - AI/ML ops (transformers, RLHF, hallucinations)
+  - News/media (astroturf, echo chambers, bot detection)
+  - Retro computing (punch cards, HIMEM.SYS, floppy disks)
+
 ---
 
 ## Potential Future Enhancements

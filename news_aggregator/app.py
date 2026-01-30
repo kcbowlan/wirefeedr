@@ -21,6 +21,8 @@ try:
 except ImportError:
     HAS_WINSOUND = False
 
+from PIL import Image, ImageDraw, ImageTk
+
 from storage import Storage
 from feeds import FeedManager
 from filters import FilterEngine
@@ -92,6 +94,9 @@ class NewsAggregatorApp:
         self._drag_start_y = 0
         self._drag_win_x = 0
         self._drag_win_y = 0
+
+        # Gradient image cache (prevent GC of PhotoImages)
+        self._gradient_cache = {}
 
         # Glitch effect (on refresh)
         self._glitch_active = False
@@ -646,23 +651,46 @@ class NewsAggregatorApp:
         self.root.bind("H", self._on_key_hide)
 
     def _build_toolbar(self):
-        """Build the toolbar (also serves as drag handle for borderless window)."""
-        self.toolbar = tk.Frame(self.root, bg=DARK_THEME["bg_secondary"])
+        """Build the toolbar with gradient background (also serves as drag handle)."""
+        t = DARK_THEME
+
+        # Container frame for toolbar
+        toolbar_container = tk.Frame(self.root, bg=t["bg_secondary"])
+        toolbar_container.pack(side=tk.TOP, fill=tk.X, padx=0, pady=0)
+
+        # Gradient canvas placed behind widgets via place()
+        self._toolbar_canvas = tk.Canvas(
+            toolbar_container, highlightthickness=0, bg=t["bg_secondary"]
+        )
+        self._toolbar_canvas.place(x=0, y=0, relwidth=1.0, relheight=1.0)
+
+        # The actual toolbar frame sits on top of the canvas
+        self.toolbar = tk.Frame(toolbar_container, bg=t["bg_secondary"])
+        self.toolbar.pack(fill=tk.X)
         toolbar = self.toolbar
-        toolbar.pack(side=tk.TOP, fill=tk.X, padx=0, pady=0)
 
         # Drag bindings for borderless window
         toolbar.bind("<Button-1>", self._start_drag)
         toolbar.bind("<B1-Motion>", self._do_drag)
         toolbar.bind("<ButtonRelease-1>", self._end_drag)
         toolbar.bind("<Double-1>", lambda e: self._toggle_maximize())
+        # Also bind drag on the canvas for the gap areas
+        self._toolbar_canvas.bind("<Button-1>", self._start_drag)
+        self._toolbar_canvas.bind("<B1-Motion>", self._do_drag)
+        self._toolbar_canvas.bind("<ButtonRelease-1>", self._end_drag)
+        self._toolbar_canvas.bind("<Double-1>", lambda e: self._toggle_maximize())
 
         # Refresh button
-        self.refresh_btn = ttk.Button(toolbar, text="↻ Refresh", command=self.fetch_all_feeds)
+        self.refresh_btn = self._create_gradient_button(
+            toolbar, "\u21bb Refresh", self.fetch_all_feeds
+        )
         self.refresh_btn.pack(side=tk.LEFT, padx=2)
 
         # Mark all read button
-        ttk.Button(toolbar, text="✓ Mark All Read", command=self.mark_all_read).pack(side=tk.LEFT, padx=2)
+        self._mark_all_btn = self._create_gradient_button(
+            toolbar, "\u2713 Mark All Read", self.mark_all_read
+        )
+        self._mark_all_btn.pack(side=tk.LEFT, padx=2)
 
         # Separator
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=10)
@@ -673,7 +701,6 @@ class NewsAggregatorApp:
                         command=self.refresh_articles).pack(side=tk.LEFT, padx=5)
 
         # Window controls (far right)
-        t = DARK_THEME
         btn_style = dict(
             bg=t["bg_secondary"], fg=t["fg"],
             font=("Segoe UI Symbol", 10), bd=0, padx=6, pady=1,
@@ -700,7 +727,10 @@ class NewsAggregatorApp:
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.RIGHT, fill=tk.Y, padx=8)
 
         # Clear button (rightmost before window controls)
-        ttk.Button(toolbar, text="Clear", command=self.clear_search, width=5).pack(side=tk.RIGHT, padx=2)
+        self._clear_btn = self._create_gradient_button(
+            toolbar, "Clear", self.clear_search
+        )
+        self._clear_btn.pack(side=tk.RIGHT, padx=2)
 
         # Filter entry
         self.search_var = tk.StringVar()
@@ -711,7 +741,7 @@ class NewsAggregatorApp:
 
         # Settings button (left of Filter)
         self._settings_btn = tk.Label(
-            toolbar, text="⚙ SETTINGS",
+            toolbar, text="\u2699 SETTINGS",
             bg=t["bg_tertiary"], fg=t["cyan"],
             font=("Consolas", 9), padx=8, pady=2, cursor="hand2"
         )
@@ -722,6 +752,108 @@ class NewsAggregatorApp:
 
         # Separator after left buttons
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.RIGHT, fill=tk.Y, padx=8)
+
+        # Bind resize to redraw gradient
+        toolbar_container.bind("<Configure>", self._on_toolbar_configure)
+
+    def _on_toolbar_configure(self, event):
+        """Redraw toolbar gradient on resize."""
+        w = event.width
+        h = event.height
+        if w < 10 or h < 2:
+            return
+        photo = self._create_gradient_image(w, h, "#0a1028", "#280a18", cache_key="toolbar_grad")
+        if photo:
+            self._toolbar_canvas.delete("all")
+            self._toolbar_canvas.create_image(0, 0, anchor=tk.NW, image=photo)
+
+    def _draw_panel_header(self, canvas, text, color1, color2, cache_key):
+        """Draw a gradient background and centered text on a panel header canvas."""
+        w = canvas.winfo_width()
+        h = canvas.winfo_height()
+        if w < 10 or h < 2:
+            return
+        photo = self._create_gradient_image(w, h, color1, color2, cache_key=cache_key)
+        if photo:
+            canvas.delete("all")
+            canvas.create_image(0, 0, anchor=tk.NW, image=photo, tags="bg")
+            canvas.create_text(
+                w // 2, h // 2, text=text, fill=DARK_THEME["cyan"],
+                font=("Consolas", 9, "bold"), anchor=tk.CENTER, tags="header_text"
+            )
+
+    def _create_gradient_button(self, parent, text, command, disabled=False):
+        """Create a canvas-based button with diagonal gradient fill.
+
+        Returns the canvas widget. Stores an '_enabled' attribute for state management.
+        """
+        t = DARK_THEME
+        font = ("Consolas", 9)
+        # Measure text to size the canvas
+        tmp = tk.Label(parent, text=text, font=font)
+        tmp.update_idletasks()
+        text_w = tmp.winfo_reqwidth()
+        text_h = tmp.winfo_reqheight()
+        tmp.destroy()
+        pad_x, pad_y = 12, 4
+        btn_w = text_w + pad_x * 2
+        btn_h = text_h + pad_y * 2
+
+        canvas = tk.Canvas(parent, width=btn_w, height=btn_h,
+                           highlightthickness=0, bg=t["bg_tertiary"], cursor="hand2")
+        canvas._btn_text = text
+        canvas._btn_command = command
+        canvas._btn_w = btn_w
+        canvas._btn_h = btn_h
+        canvas._btn_enabled = not disabled
+
+        # Draw initial state
+        self._draw_gradient_btn(canvas, hover=False)
+
+        # Bindings
+        canvas.bind("<Enter>", lambda e, c=canvas: self._on_grad_btn_enter(c))
+        canvas.bind("<Leave>", lambda e, c=canvas: self._on_grad_btn_leave(c))
+        canvas.bind("<Button-1>", lambda e, c=canvas: self._on_grad_btn_click(c))
+
+        return canvas
+
+    def _draw_gradient_btn(self, canvas, hover=False):
+        """Redraw a gradient button's background and text."""
+        w = canvas._btn_w
+        h = canvas._btn_h
+        enabled = canvas._btn_enabled
+        t = DARK_THEME
+
+        if not enabled:
+            c1, c2 = "#0c0c18", "#180c14"
+            text_color = t["fg_secondary"]
+        elif hover:
+            c1, c2 = "#2a1250", "#50122a"
+            text_color = t["fg_highlight"]
+        else:
+            c1, c2 = "#0a1028", "#280a18"
+            text_color = t["cyan"]
+
+        key = f"gbtn_{id(canvas)}_{hover}_{enabled}"
+        photo = self._create_gradient_image(w, h, c1, c2, cache_key=key)
+        canvas.delete("all")
+        if photo:
+            canvas.create_image(0, 0, anchor=tk.NW, image=photo)
+        canvas.create_text(
+            w // 2, h // 2, text=canvas._btn_text, fill=text_color,
+            font=("Consolas", 9), anchor=tk.CENTER
+        )
+
+    def _on_grad_btn_enter(self, canvas):
+        if canvas._btn_enabled:
+            self._draw_gradient_btn(canvas, hover=True)
+
+    def _on_grad_btn_leave(self, canvas):
+        self._draw_gradient_btn(canvas, hover=False)
+
+    def _on_grad_btn_click(self, canvas):
+        if canvas._btn_enabled and canvas._btn_command:
+            canvas._btn_command()
 
     def _build_ticker(self):
         """Build the scrolling ticker tape banner."""
@@ -912,7 +1044,7 @@ class NewsAggregatorApp:
     def _build_feeds_panel(self):
         """Build the feeds list panel."""
         self.feeds_frame = tk.LabelFrame(
-            self.main_paned, text=" FEEDS ",
+            self.main_paned, text="",
             bg=DARK_THEME["bg"], fg=DARK_THEME["cyan"],
             font=("Consolas", 10, "bold"),
             highlightbackground=DARK_THEME["cyan_dim"],
@@ -922,6 +1054,13 @@ class NewsAggregatorApp:
         )
         feeds_frame = self.feeds_frame
         self.main_paned.add(feeds_frame, weight=1)
+
+        # Gradient header bar
+        self._feeds_header = tk.Canvas(feeds_frame, height=20, highlightthickness=0,
+                                        bg=DARK_THEME["bg_secondary"])
+        self._feeds_header.pack(fill=tk.X, pady=(0, 3))
+        self._feeds_header.bind("<Configure>", lambda e: self._draw_panel_header(
+            self._feeds_header, "FEEDS", "#0a1028", "#1a0a20", "feeds_hdr"))
 
         # Branding at bottom (pack first so it stays at bottom)
         branding_frame = tk.Frame(feeds_frame, bg=DARK_THEME["bg"])
@@ -976,7 +1115,7 @@ class NewsAggregatorApp:
 
         # Articles list
         self.articles_frame = tk.LabelFrame(
-            right_paned, text=" ARTICLES ",
+            right_paned, text="",
             bg=DARK_THEME["bg"], fg=DARK_THEME["cyan"],
             font=("Consolas", 10, "bold"),
             highlightbackground=DARK_THEME["cyan_dim"],
@@ -986,6 +1125,13 @@ class NewsAggregatorApp:
         )
         articles_frame = self.articles_frame
         right_paned.add(articles_frame, weight=2)
+
+        # Gradient header bar
+        self._articles_header = tk.Canvas(articles_frame, height=20, highlightthickness=0,
+                                           bg=DARK_THEME["bg_secondary"])
+        self._articles_header.pack(fill=tk.X, pady=(0, 3))
+        self._articles_header.bind("<Configure>", lambda e: self._draw_panel_header(
+            self._articles_header, "ARTICLES", "#0a1028", "#1a0a20", "articles_hdr"))
 
         # Articles treeview with columns
         columns = ("title", "source", "bias", "date", "noise")
@@ -1030,7 +1176,7 @@ class NewsAggregatorApp:
 
         # Preview panel
         self.preview_frame = tk.LabelFrame(
-            right_paned, text=" PREVIEW ",
+            right_paned, text="",
             bg=DARK_THEME["bg"], fg=DARK_THEME["magenta"],
             font=("Consolas", 10, "bold"),
             highlightbackground=DARK_THEME["magenta_dim"],
@@ -1040,6 +1186,13 @@ class NewsAggregatorApp:
         )
         preview_frame = self.preview_frame
         right_paned.add(preview_frame, weight=1)
+
+        # Gradient header bar (magenta-tinted for preview)
+        self._preview_header = tk.Canvas(preview_frame, height=20, highlightthickness=0,
+                                          bg=DARK_THEME["bg_secondary"])
+        self._preview_header.pack(fill=tk.X, pady=(0, 3))
+        self._preview_header.bind("<Configure>", lambda e: self._draw_panel_header(
+            self._preview_header, "PREVIEW", "#1a0a28", "#280a18", "preview_hdr"))
 
         # Sash flash bindings
         for paned in [self.main_paned, self.right_paned]:
@@ -1072,8 +1225,9 @@ class NewsAggregatorApp:
         self.author_menu_btn.pack(side=tk.LEFT, padx=2)
         self.author_menu_btn.configure(state=tk.DISABLED)
 
-        self.open_btn = ttk.Button(btn_frame, text="Open in Browser", command=self.open_in_browser,
-                                    state=tk.DISABLED)
+        self.open_btn = self._create_gradient_button(
+            btn_frame, "Open in Browser", self.open_in_browser, disabled=True
+        )
         self.open_btn.pack(side=tk.LEFT, padx=2)
 
         # Bias info frame (colored labels)
@@ -1368,13 +1522,19 @@ class NewsAggregatorApp:
         self._update_ticker()
 
     def _update_read_counter(self, articles: list):
-        """Update the articles frame title with read count."""
+        """Update the articles header canvas with read count."""
         total = len(articles)
         read = sum(1 for a in articles if a.get("is_read", False))
-        if total > 0:
-            self.articles_frame.configure(text=f" ARTICLES ({read}/{total} READ) ")
+        text = f"ARTICLES ({read}/{total} READ)" if total > 0 else "ARTICLES"
+        # Update the text on the gradient header canvas
+        text_items = self._articles_header.find_withtag("header_text")
+        if text_items:
+            self._articles_header.itemconfigure(text_items[0], text=text)
         else:
-            self.articles_frame.configure(text=" ARTICLES ")
+            # Header not drawn yet — force a redraw with updated text
+            self._draw_panel_header(
+                self._articles_header, text, "#0a1028", "#1a0a20", "articles_hdr"
+            )
 
     def _display_flat_articles(self, articles: list):
         """Display articles without clustering."""
@@ -1440,7 +1600,8 @@ class NewsAggregatorApp:
             return
 
         self.is_fetching = True
-        self.refresh_btn.configure(state=tk.DISABLED)
+        self.refresh_btn._btn_enabled = False
+        self._draw_gradient_btn(self.refresh_btn, hover=False)
         self._update_status("Fetching feeds...")
         self._show_progress()
         self._start_glitch()
@@ -1496,7 +1657,8 @@ class NewsAggregatorApp:
             # Update UI on main thread
             def finish():
                 self.is_fetching = False
-                self.refresh_btn.configure(state=tk.NORMAL)
+                self.refresh_btn._btn_enabled = True
+                self._draw_gradient_btn(self.refresh_btn, hover=False)
                 self._hide_progress()
                 self.refresh_feeds_list()
                 self.refresh_articles()
@@ -1861,7 +2023,6 @@ class NewsAggregatorApp:
                 meta += f" • {article['author']}"
             if date_str:
                 meta += f" • {date_str}"
-            meta += f" • Noise: {article['noise_score']} ({self.filter_engine.get_noise_level(article['noise_score'])})"
 
             self.preview_meta.configure(text=meta)
 
@@ -1872,7 +2033,8 @@ class NewsAggregatorApp:
             summary = article.get("summary", "No summary available.")
             self._start_typewriter(summary, article_id)
 
-            self.open_btn.configure(state=tk.NORMAL)
+            self.open_btn._btn_enabled = True
+            self._draw_gradient_btn(self.open_btn, hover=False)
 
             # Enable author search if we have a valid author name
             self.current_author_clean = self._clean_author_name(article.get("author", ""))
@@ -4260,6 +4422,37 @@ class NewsAggregatorApp:
         b = int(b1 + (b2 - b1) * t)
         return f"#{r:02x}{g:02x}{b:02x}"
 
+    def _create_gradient_image(self, width, height, color1, color2, cache_key=None):
+        """Create a diagonal gradient image (top-left=color1, bottom-right=color2).
+
+        Returns a PIL.ImageTk.PhotoImage. Stored in _gradient_cache to prevent GC.
+        """
+        if width < 1 or height < 1:
+            return None
+        r1, g1, b1 = int(color1[1:3], 16), int(color1[3:5], 16), int(color1[5:7], 16)
+        r2, g2, b2 = int(color2[1:3], 16), int(color2[3:5], 16), int(color2[5:7], 16)
+        img = Image.new("RGB", (width, height))
+        draw = ImageDraw.Draw(img)
+        # Draw diagonal lines from top-right to bottom-left; each line shares the same
+        # diagonal distance factor (0..1) which maps to the color blend.
+        max_d = width + height - 2 if (width + height - 2) > 0 else 1
+        for d in range(width + height - 1):
+            t = d / max_d
+            r = int(r1 + (r2 - r1) * t)
+            g = int(g1 + (g2 - g1) * t)
+            b = int(b1 + (b2 - b1) * t)
+            color = f"#{r:02x}{g:02x}{b:02x}"
+            # Each anti-diagonal line: from (d,0) toward (0,d)
+            x0 = min(d, width - 1)
+            y0 = d - x0
+            x1 = max(d - (height - 1), 0)
+            y1 = d - x1
+            draw.line([(x0, y0), (x1, y1)], fill=color)
+        photo = ImageTk.PhotoImage(img)
+        key = cache_key or id(photo)
+        self._gradient_cache[key] = photo
+        return photo
+
     def _pulse_borders(self):
         """Animate panel borders with sine-wave pulsing at different intervals."""
         if self._glitch_active or self._sash_flash_active:
@@ -4278,7 +4471,7 @@ class NewsAggregatorApp:
         self.title_label.configure(fg=color)
 
     def _draw_title_neon_line(self):
-        """Draw two animated neon sweeps (cyan + magenta) chasing around window frame."""
+        """Draw two animated neon sweeps chasing around window frame with diagonal gradient colors."""
         top = self._border_top
         bottom = self._border_bottom
         left = self._border_left
@@ -4294,60 +4487,65 @@ class NewsAggregatorApp:
 
         # Full cycle = 300 frames (~10s)
         cycle = self._anim_frame % 300
-        pos1 = cycle / 300.0  # Cyan wave position (0 to 1)
-        pos2 = (pos1 + 0.5) % 1.0  # Magenta wave, opposite side
+        pos1 = cycle / 300.0  # Wave 1 position (0 to 1)
+        pos2 = (pos1 + 0.5) % 1.0  # Wave 2, opposite side
 
         perimeter = 2 * w + 2 * h
+        max_diag = w + h if (w + h) > 0 else 1  # for diagonal factor normalization
 
-        # Initialize segments on resize
+        # Initialize segments on resize — store (rid, seg_pos, diag_factor)
         if not hasattr(self, '_border_seg_count') or self._border_seg_count != (w, h):
             self._border_seg_count = (w, h)
             for canvas in [top, bottom, left, right]:
                 canvas.delete("all")
             self._border_ids = {'top': [], 'bottom': [], 'left': [], 'right': []}
 
-            # Top: left to right
+            # Top: left to right — y=0, x varies
             for x in range(0, w, 4):
                 rid = top.create_rectangle(x, 0, x + 4, thickness, fill=t["bg"], outline="")
-                self._border_ids['top'].append((rid, x / perimeter))
+                diag = x / max_diag  # top-left=0, top-right=~0.5
+                self._border_ids['top'].append((rid, x / perimeter, diag))
 
-            # Right: top to bottom
+            # Right: top to bottom — x=w, y varies
             for y in range(0, h, 4):
                 rid = right.create_rectangle(0, y, thickness, y + 4, fill=t["bg"], outline="")
-                self._border_ids['right'].append((rid, (w + y) / perimeter))
+                diag = (w + y) / max_diag  # top-right=~0.5, bottom-right=1.0
+                self._border_ids['right'].append((rid, (w + y) / perimeter, min(diag, 1.0)))
 
-            # Bottom: right to left
+            # Bottom: right to left — y=h, x varies (reversed)
             for x in range(w, 0, -4):
                 rid = bottom.create_rectangle(x - 4, 0, x, thickness, fill=t["bg"], outline="")
-                self._border_ids['bottom'].append((rid, (w + h + (w - x)) / perimeter))
+                diag = (x + h) / max_diag  # bottom-right=1.0, bottom-left=~0.5
+                self._border_ids['bottom'].append((rid, (w + h + (w - x)) / perimeter, min(diag, 1.0)))
 
-            # Left: bottom to top
+            # Left: bottom to top — x=0, y varies (reversed)
             for y in range(h, 0, -4):
                 rid = left.create_rectangle(0, y - 4, thickness, y, fill=t["bg"], outline="")
-                self._border_ids['left'].append((rid, (2 * w + h + (h - y)) / perimeter))
+                diag = y / max_diag  # bottom-left=~0.5, top-left=0
+                self._border_ids['left'].append((rid, (2 * w + h + (h - y)) / perimeter, diag))
 
-        # Update all segments with dual wave colors
+        # Update all segments with dual wave colors + diagonal gradient
         base_color = t["bg"]
+        cyan = t["cyan"]
+        magenta = t["magenta"]
         for side in ['top', 'right', 'bottom', 'left']:
             canvas = {'top': top, 'right': right, 'bottom': bottom, 'left': left}[side]
-            for rid, seg_pos in self._border_ids[side]:
-                # Distance to cyan wave
+            for rid, seg_pos, diag in self._border_ids[side]:
+                # Each wave's peak color varies by diagonal position
+                wave_color = self._lerp_color(cyan, magenta, diag)
+
+                # Distance to wave 1
                 dist1 = min(abs(seg_pos - pos1), 1.0 - abs(seg_pos - pos1))
                 bright1 = max(0, 1.0 - dist1 * 8)
 
-                # Distance to magenta wave
+                # Distance to wave 2
                 dist2 = min(abs(seg_pos - pos2), 1.0 - abs(seg_pos - pos2))
                 bright2 = max(0, 1.0 - dist2 * 8)
 
-                # Blend colors
-                if bright1 > 0 and bright2 > 0:
-                    # Both waves overlap - blend to white-ish
-                    color = self._lerp_color(t["cyan"], t["magenta"], bright2 / (bright1 + bright2))
-                    color = self._lerp_color(base_color, color, max(bright1, bright2))
-                elif bright1 > 0:
-                    color = self._lerp_color(base_color, t["cyan"], bright1)
-                elif bright2 > 0:
-                    color = self._lerp_color(base_color, t["magenta"], bright2)
+                # Blend: both waves use the same position-based color
+                total_bright = max(bright1, bright2)
+                if total_bright > 0:
+                    color = self._lerp_color(base_color, wave_color, total_bright)
                 else:
                     color = base_color
 

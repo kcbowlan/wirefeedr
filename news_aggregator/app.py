@@ -496,6 +496,11 @@ class NewsAggregatorApp:
         # Update read counter in articles frame title
         self._update_read_counter(articles)
 
+        # Reset preview if selected article is no longer visible
+        if self.selected_article_id and not self.articles_tree.exists(str(self.selected_article_id)):
+            self.selected_article_id = None
+            ui_builders.show_preview_placeholder(self)
+
         self._update_ticker()
 
         self._update_trending(articles)

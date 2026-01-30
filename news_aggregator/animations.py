@@ -598,7 +598,7 @@ def play_boot_sequence(app):
 
 
 def boot_next_line(app):
-    """Display next boot line with typewriter effect."""
+    """Start typing the next boot line character-by-character."""
     if app._boot_step >= len(app._boot_lines):
         app.root.after(400, lambda: boot_fade_out(app))
         return
@@ -607,12 +607,30 @@ def boot_next_line(app):
     text = app._boot_lines[app._boot_step]
     color = DARK_THEME["cyan"] if app._boot_step < len(app._boot_lines) - 1 else DARK_THEME["magenta"]
 
-    app._boot_overlay.create_text(
-        60, y, text=text, fill=color, anchor=tk.W,
+    # Create text item with empty string, then type into it
+    text_id = app._boot_overlay.create_text(
+        60, y, text="", fill=color, anchor=tk.W,
         font=("Consolas", 11, "bold")
     )
-    app._boot_step += 1
-    app.root.after(300, lambda: boot_next_line(app))
+    app._boot_char_pos = 0
+    app._boot_current_text = text
+    app._boot_text_id = text_id
+    boot_type_char(app)
+
+
+def boot_type_char(app):
+    """Type one character of the current boot line."""
+    app._boot_char_pos += 3
+    partial = app._boot_current_text[:app._boot_char_pos]
+    app._boot_overlay.itemconfigure(app._boot_text_id, text=partial + "_")
+
+    if app._boot_char_pos >= len(app._boot_current_text):
+        # Line done — remove cursor, pause, then next line
+        app._boot_overlay.itemconfigure(app._boot_text_id, text=app._boot_current_text)
+        app._boot_step += 1
+        app.root.after(60, lambda: boot_next_line(app))
+    else:
+        app.root.after(5, lambda: boot_type_char(app))
 
 
 def boot_fade_out(app):

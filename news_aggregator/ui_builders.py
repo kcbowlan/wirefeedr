@@ -651,6 +651,44 @@ def build_articles_panel(app):
     import highlighting
     highlighting.setup_highlight_tags(app)
 
+    # Show empty-state placeholder
+    show_preview_placeholder(app)
+
+
+def show_preview_placeholder(app):
+    """Display a cyberpunk placeholder when no article is selected."""
+    app.preview_title.configure(text="")
+    app.bias_label.configure(text="", bg=DARK_THEME["bg_tertiary"])
+    app.factual_label.configure(text="", bg=DARK_THEME["bg_tertiary"])
+    app.preview_meta.configure(text="")
+
+    t = DARK_THEME
+    pw = app.preview_text
+    pw.configure(state=tk.NORMAL)
+    pw.delete("1.0", tk.END)
+
+    # Placeholder tags
+    pw.tag_configure("ph_dim", foreground=t["fg_secondary"], justify="center",
+                     font=("Consolas", 9))
+    pw.tag_configure("ph_brand", foreground=t["cyan"], justify="center",
+                     font=("Consolas", 14, "bold"))
+    pw.tag_configure("ph_accent", foreground=t["magenta_dim"], justify="center",
+                     font=("Consolas", 9))
+    pw.tag_configure("ph_key", foreground=t["cyan_dim"], justify="center",
+                     font=("Consolas", 9))
+    pw.tag_configure("ph_box", foreground=t["fg_secondary"], justify="center",
+                     font=("Consolas", 9))
+
+    lines = [
+        ("\n\n\n\n", "ph_dim"),
+        ("SELECT ARTICLE TO VIEW\n", "ph_accent"),
+    ]
+
+    for text, tag in lines:
+        pw.insert(tk.END, text, tag)
+
+    pw.configure(state=tk.DISABLED)
+
 
 def build_status_bar(app):
     """Build the cyberpunk status bar."""

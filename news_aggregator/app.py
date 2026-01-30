@@ -882,9 +882,11 @@ class NewsAggregatorApp:
         """Pause or resume ticker animation."""
         self.ticker_paused = paused
         if not paused:
-            # Reset all text colors back to cyan when leaving
+            # Reset all text colors back to their original colors when leaving
             for item_id in self.ticker_canvas.find_withtag("ticker_text"):
-                self.ticker_canvas.itemconfigure(item_id, fill=DARK_THEME["cyan"])
+                orig = self._ticker_item_colors.get(item_id)
+                if orig:
+                    self.ticker_canvas.itemconfigure(item_id, fill=orig)
 
     def _on_ticker_configure(self, event):
         """Handle ticker canvas resize with debounce."""
@@ -923,41 +925,39 @@ class NewsAggregatorApp:
             self._stop_ticker_animation()
             return
 
+        # Alternating headline colors
+        headline_colors = [DARK_THEME["cyan"], DARK_THEME["magenta"]]
+        source_color = DARK_THEME["neon_yellow"]
+        self._ticker_item_colors = {}  # item_id -> original fill color
+
         # Build text items — two copies for seamless looping
-        separator = "  \u2022  "  # bullet
         x = 0
         font = ("TkDefaultFont", 9)
-        copy_positions = []  # track (x_start, article_id) for both copies
 
         for copy in range(2):
             for i, item in enumerate(unread_items):
-                label = f"[{item['source']}]: {item['title']}"
-                text_id = self.ticker_canvas.create_text(
-                    x, 14,
-                    text=label,
-                    fill=DARK_THEME["cyan"],
-                    font=font,
-                    anchor=tk.W,
-                    tags="ticker_text",
+                h_color = headline_colors[i % 2]
+
+                # Source tag in yellow brackets
+                src_text = f"  [{item['source']}]  "
+                src_id = self.ticker_canvas.create_text(
+                    x, 14, text=src_text, fill=source_color,
+                    font=font, anchor=tk.W, tags="ticker_text",
                 )
+                self._ticker_item_colors[src_id] = source_color
+                self.ticker_canvas_to_article[src_id] = item["article_id"]
+                src_bbox = self.ticker_canvas.bbox(src_id)
+                x += (src_bbox[2] - src_bbox[0]) if src_bbox else 80
+
+                # Headline text in alternating color
+                text_id = self.ticker_canvas.create_text(
+                    x, 14, text=item["title"], fill=h_color,
+                    font=font, anchor=tk.W, tags="ticker_text",
+                )
+                self._ticker_item_colors[text_id] = h_color
                 self.ticker_canvas_to_article[text_id] = item["article_id"]
                 bbox = self.ticker_canvas.bbox(text_id)
-                text_width = bbox[2] - bbox[0] if bbox else 100
-                x += text_width
-
-                # Add separator (not after last item in second copy)
-                if i < len(unread_items) - 1 or copy == 0:
-                    sep_id = self.ticker_canvas.create_text(
-                        x, 14,
-                        text=separator,
-                        fill=DARK_THEME["fg_secondary"],
-                        font=font,
-                        anchor=tk.W,
-                        tags="ticker_text",
-                    )
-                    sep_bbox = self.ticker_canvas.bbox(sep_id)
-                    sep_width = sep_bbox[2] - sep_bbox[0] if sep_bbox else 20
-                    x += sep_width
+                x += (bbox[2] - bbox[0]) if bbox else 100
 
             if copy == 0:
                 self.ticker_total_width = x
@@ -1017,7 +1017,7 @@ class NewsAggregatorApp:
                 self.refresh_articles()
 
     def _on_ticker_motion(self, event):
-        """Highlight headline under cursor (magenta), others stay cyan."""
+        """Highlight headline under cursor (white), others restore original color."""
         closest = self.ticker_canvas.find_closest(event.x, event.y)
         if not closest:
             return
@@ -1025,9 +1025,10 @@ class NewsAggregatorApp:
 
         for item_id in self.ticker_canvas.find_withtag("ticker_text"):
             if item_id == closest_id and item_id in self.ticker_canvas_to_article:
-                self.ticker_canvas.itemconfigure(item_id, fill=DARK_THEME["magenta"])
+                self.ticker_canvas.itemconfigure(item_id, fill=DARK_THEME["fg_highlight"])
             else:
-                self.ticker_canvas.itemconfigure(item_id, fill=DARK_THEME["cyan"])
+                orig = self._ticker_item_colors.get(item_id, DARK_THEME["cyan"])
+                self.ticker_canvas.itemconfigure(item_id, fill=orig)
 
     def _build_main_layout(self):
         """Build the main paned layout."""

@@ -700,53 +700,43 @@ _play_boot_sequence()     # Typewriter intro → starts animation loop
 
 ## Potential Future Enhancements
 
-### High Priority - Volume Reduction ✓ COMPLETE
-These features reduce daily article count to a manageable ~20-30 articles.
-
-- [x] **Topic Clustering** - Groups related articles with [+N] indicator, shows related in preview
-- [x] **Recency Window** - Dropdown: 6h/12h/24h/48h/Week/All
-- [x] **Smart Daily Cap per Source** - Dropdown: 5/10/15/20/No Limit per feed, ranked by quality
-
-### UI Enhancements
-- [x] **Keyboard shortcuts** - Simplified: ↑/↓ navigate, Enter open, M read, H hide
-- [x] **Wikipedia hyperlinks** - Comprehensive entity highlighting with ~1,780 entries (Session 11)
-- [x] **Ticker tape** - Scrolling unread headlines with click/hover interaction (Session 12)
-- [x] **Borderless window** - Custom title bar, drag-to-move, taskbar icon (Session 13)
-- [x] **Pulsing border animations** - Sine-wave neon borders, title glow, sweep line (Session 13)
+### Completed
+- [x] **Volume Reduction** - Topic clustering, recency window, smart daily cap per source
+- [x] **Keyboard shortcuts** - ↑/↓ navigate, Enter open, M read, H hide
+- [x] **Wikipedia hyperlinks** - Comprehensive entity highlighting with ~1,780 entries
+- [x] **Ticker tape** - Scrolling unread headlines with click/hover interaction
+- [x] **Borderless window** - Custom title bar, drag-to-move, taskbar icon
+- [x] **Pulsing border animations** - Sine-wave neon borders, title glow, sweep line
 - [x] **GitHub backup** - Repository at github.com/kcbowlan/wirefeedr
-- [ ] ~~OPML import/export~~ - Out of scope (convenience, not quality filtering)
-- [ ] Feed folders/grouping
-- [ ] Article tagging/bookmarking
-- [ ] Notification for new articles
-- [ ] **Alternating ticker title colors** - Vary headline colors in the ticker bar
-- [ ] **Subtler refresh animation** - Current animation on refresh is too aggressive
-- [ ] **Empty preview area state** - Preview looks bare with no article selected; needs placeholder/default content
-- [ ] **Boot screen typewriter effect** - Boot text should type in character-by-character
-- [ ] **Summary panel highlighting** - Text in summary panel needs more regular/consistent highlighting
-- [ ] **Non-standard UI exploration** - Explore UI paradigms outside typical Windows conventions
+- [x] **Feed favicons** - 16x16 icons next to feed names
+- [x] **Author search** - "Search Author" dropdown (Google, LinkedIn, Wikipedia, Twitter)
+- [x] ~~OPML import/export~~ - Out of scope (convenience, not quality filtering)
 
-### More Source Feeds
-- [ ] **Evaluate new feeds via scoring system** - Use existing bias/factual/noise scoring to identify and add high-quality sources
+### SIGNAL — Source Integrity, Grading, Noise Abatement & Legitimacy
+Tasks that directly advance the core mission: separating factual news from noise.
 
-### Source Feed Integrity
 - [ ] **Author credibility in article scores** - Tie author reputation into scoring more reliably; prefer offline solutions; investigate journalist credibility/bias databases
 - [ ] **Additional bias/credibility tracking sources** - Find sources beyond MBFC that track publisher bias and credibility; ping periodically and update; visualize rating shifts over time as line graphs
 - [ ] **Ground News methodology** - Research their approach (bias ratings, coverage analysis, blind spot detection) and evaluate what fits without compromising project goals
+- [ ] **Evaluate new feeds via scoring system** - Use existing bias/factual/noise scoring to identify and add high-quality sources
+- [ ] **Async feed fetching** - Currently sequential in background thread; faster fetching means fresher data from more sources
+- [ ] **Notification for new articles** - Ensures important stories aren't missed
 
-### Easter Eggs
-- [ ] **Brainstorm ideas** - Hidden interactions, secret key combos, fun surprises fitting the cyberpunk/hacker aesthetic
+### Secondary
+Polish, aesthetics, and convenience features.
 
-### Low Priority
+- [ ] **Subtler refresh animation** - Current animation on refresh is too aggressive
+- [ ] **Empty preview area state** - Preview looks bare with no article selected; needs placeholder/default content
+- [ ] **Boot screen typewriter effect** - Boot text should type in character-by-character
+- [ ] **Feed folders/grouping**
+- [ ] **Article tagging/bookmarking**
+- [ ] **Database backup/restore**
+- [ ] **Non-standard UI exploration** - Explore UI paradigms outside typical Windows conventions
+- [ ] **Easter eggs** - Hidden interactions, secret key combos, fun surprises fitting the cyberpunk/hacker aesthetic
 - [ ] Offline reading mode (cache full article text)
 - [ ] Feed health monitoring dashboard
 - [ ] Readability mode (strip ads, extract content)
 - [ ] Integration with read-it-later services (Pocket, Instapaper)
-
-### Technical Debt
-- [ ] Async feed fetching (currently sequential in background thread)
-- [x] ~~Feed favicon fetching~~ - Done (Session 8)
-- [ ] Database backup/restore
-- [x] ~~Revisit Author Info search~~ - Now "Search Author" dropdown (Session 8)
 
 ---
 

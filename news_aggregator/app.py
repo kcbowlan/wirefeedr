@@ -541,7 +541,19 @@ class NewsAggregatorApp:
         if date:
             try:
                 dt = datetime.fromisoformat(date)
-                date = dt.strftime("%Y-%m-%d %H:%M")
+                hours = (datetime.now() - dt).total_seconds() / 3600
+                if hours < 1:
+                    date = "Just Now"
+                elif hours < 24:
+                    half = round(hours * 2) / 2
+                    if half == int(half):
+                        date = f"{int(half)}h ago"
+                    else:
+                        date = f"{int(half)}.5h ago"
+                elif hours < 168:
+                    date = f"{int(hours // 24)}d ago"
+                else:
+                    date = f"{int(hours // 168)}w ago"
             except:
                 pass
         noise = article.get("noise_score", 0)

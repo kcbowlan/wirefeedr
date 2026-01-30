@@ -1,6 +1,7 @@
 # animations.py - Visual effects, animation loop, typewriter, boot sequence, gradient buttons
 
 import tkinter as tk
+from tkinter import ttk
 import math
 import random
 
@@ -294,24 +295,41 @@ def on_article_leave(app, event):
 # -- Glitch effect (Feature 1) --------------------------------------------
 
 def start_glitch(app):
-    """Activate glitch effect on refresh start."""
+    """Activate a pulse sweep effect on refresh start."""
     app._glitch_active = True
-    app._glitch_end_frame = (app._anim_frame + 8) % 3600
-    app._glitch_sequence = ["#00ffff", "#ff00ff", "#ffffff", "#00ffff", "#ff00ff", "#ffffff", "#00ffff", "#ff00ff"]
-    app._glitch_step = 0
+    app._glitch_start_frame = app._anim_frame
+    app._glitch_duration = 30  # ~1s at 30fps
 
 
 def animate_glitch(app):
-    """Flash panel borders through a fixed neon sequence."""
+    """Two bright pulses that sweep across panels, then fade."""
     if not app._glitch_active:
         return
-    if app._anim_frame == app._glitch_end_frame:
+    elapsed = app._anim_frame - app._glitch_start_frame
+    if elapsed < 0:
+        elapsed += 3600
+    if elapsed >= app._glitch_duration:
         app._glitch_active = False
         return
-    color = app._glitch_sequence[app._glitch_step % len(app._glitch_sequence)]
-    app._glitch_step += 1
-    for widget, _, _ in app._neon_panels:
+    t = elapsed / app._glitch_duration
+    # Two pulses using a sine wave
+    import math
+    pulse = abs(math.sin(t * math.pi * 2.5))
+    # Fade out over time
+    envelope = 1.0 - (t ** 0.7)
+    brightness = pulse * envelope
+    # Overshoot to white on the first pulse
+    accent_colors = {"cyan": DARK_THEME["cyan_dim"], "magenta": DARK_THEME["magenta_dim"]}
+    hot_colors = {"cyan": "#aaffff", "magenta": "#ffaaff"}
+    for widget, color_key, _ in app._neon_panels:
+        dim = accent_colors.get(color_key, DARK_THEME["cyan_dim"])
+        hot = hot_colors.get(color_key, "#aaffff")
+        color = lerp_color(dim, hot, brightness)
         widget.configure(highlightbackground=color)
+    # Pulse treeview backgrounds
+    tree_bg = lerp_color(DARK_THEME["bg"], "#102838", brightness)
+    style = ttk.Style()
+    style.configure("Treeview", fieldbackground=tree_bg, background=tree_bg)
 
 
 # -- Sash flash (Feature 4) -----------------------------------------------

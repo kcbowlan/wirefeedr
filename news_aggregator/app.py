@@ -89,6 +89,7 @@ class NewsAggregatorApp:
         # Animation state
         self._anim_frame = 0
         self._anim_id = None
+        self._bias_arrow_pos = 0.5
         self._neon_panels = []
         self._is_maximized = False
         self._normal_geometry = ""
@@ -541,8 +542,8 @@ class NewsAggregatorApp:
         # Menubutton
         style.configure("TMenubutton", background=t["bg_tertiary"], foreground=t["cyan"])
         style.map("TMenubutton",
-                  background=[("active", t["magenta"])],
-                  foreground=[("active", t["fg_highlight"])])
+                  background=[("active", t["magenta"]), ("disabled", t["bg_secondary"])],
+                  foreground=[("active", t["fg_highlight"]), ("disabled", t["fg_secondary"])])
 
         # Entry
         style.configure("TEntry", fieldbackground=t["bg_tertiary"], foreground=t["fg"],
@@ -1115,7 +1116,7 @@ class NewsAggregatorApp:
         self.feeds_tree.bind("<Button-3>", self._on_feed_right_click)
 
         # --- Bias Balance Bar ---
-        tk.Label(feeds_frame, text="BIAS BALANCE", bg=DARK_THEME["bg"],
+        tk.Label(feeds_frame, text="PERSONAL FEED BIAS", bg=DARK_THEME["bg"],
                  fg=DARK_THEME["cyan"], font=("Consolas", 8, "bold")
         ).pack(fill=tk.X, pady=(6, 1))
 
@@ -1125,22 +1126,39 @@ class NewsAggregatorApp:
         self._bias_canvas.bind("<Configure>", lambda e: self._update_bias_balance())
 
         # --- Trending Topics ---
-        self._trending_header = tk.Canvas(feeds_frame, height=16, highlightthickness=0,
+        trending_hdr_row = tk.Frame(feeds_frame, bg=DARK_THEME["bg"])
+        trending_hdr_row.pack(fill=tk.X, pady=(2, 0))
+
+        self._trending_header = tk.Canvas(trending_hdr_row, height=16, highlightthickness=0,
                                            bg=DARK_THEME["bg_secondary"])
-        self._trending_header.pack(fill=tk.X, pady=(2, 0))
+        self._trending_header.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self._trending_header.bind("<Configure>", lambda e: self._draw_panel_header(
             self._trending_header, "TRENDING", "#0a1028", "#1a0a20", "trend_hdr"))
+
+        refresh_btn = tk.Label(
+            trending_hdr_row, text="\u21bb", bg=DARK_THEME["bg_secondary"],
+            fg=DARK_THEME["cyan_dim"], font=("Consolas", 11), cursor="hand2", padx=4
+        )
+        refresh_btn.pack(side=tk.RIGHT, fill=tk.Y)
+        refresh_btn.bind("<Button-1>", lambda e: self._flip_all_trending())
+        refresh_btn.bind("<Enter>", lambda e: refresh_btn.configure(fg=DARK_THEME["cyan"]))
+        refresh_btn.bind("<Leave>", lambda e: refresh_btn.configure(fg=DARK_THEME["cyan_dim"]))
 
         self._trending_frame = tk.Frame(feeds_frame, bg=DARK_THEME["bg"])
         self._trending_frame.pack(fill=tk.BOTH, expand=True, pady=(2, 0))
 
-        self._trending_text = tk.Text(
-            self._trending_frame, wrap=tk.WORD, bg=DARK_THEME["bg"],
-            fg=DARK_THEME["fg_secondary"], font=("Consolas", 9),
-            borderwidth=0, highlightthickness=0, cursor="arrow",
-            state=tk.DISABLED, padx=4, pady=4
+        self._trending_canvas = tk.Canvas(
+            self._trending_frame, bg=DARK_THEME["bg"],
+            borderwidth=0, highlightthickness=0
         )
-        self._trending_text.pack(fill=tk.BOTH, expand=True)
+        self._trending_canvas.pack(fill=tk.BOTH, expand=True)
+        self._trending_canvas.bind("<Configure>", lambda e: self._layout_trending_slots())
+        self._trending_pool = []       # full ordered word list
+        self._trending_slots = []      # visible slot dicts
+        self._trending_pool_idx = 0    # next word to pull from pool
+        self._trending_intervals = [900, 1800, 9000]  # 30s, 1m, 5m in frames
+        self._trending_interval_idx = 0
+        self._trending_next_flip = 0   # anim_frame when next board-wide flip fires
 
     def _build_articles_panel(self):
         """Build the articles and preview panel."""
@@ -1247,12 +1265,13 @@ class NewsAggregatorApp:
         btn_frame.pack(side=tk.RIGHT)
 
         # Search Author dropdown menu
-        self.author_menu_btn = ttk.Menubutton(btn_frame, text="Search Author")
+        self.author_menu_btn = ttk.Menubutton(btn_frame, text="Search Author",
+                                                direction="below")
         self.author_menu = tk.Menu(self.author_menu_btn, tearoff=0,
                                     bg=DARK_THEME["bg_secondary"], fg=DARK_THEME["fg"],
                                     activebackground=DARK_THEME["magenta"],
                                     activeforeground=DARK_THEME["fg_highlight"])
-        self.author_menu_btn["menu"] = self.author_menu
+        self.author_menu_btn.configure(menu=self.author_menu)
         self.author_menu.add_command(label="Google", command=lambda: self._search_author("google"))
         self.author_menu.add_command(label="LinkedIn", command=lambda: self._search_author("linkedin"))
         self.author_menu.add_command(label="Wikipedia", command=lambda: self._search_author("wikipedia"))
@@ -1575,8 +1594,25 @@ class NewsAggregatorApp:
                 self._articles_header, text, "#0a1028", "#1a0a20", "articles_hdr"
             )
 
+    # Numeric bias positions for weighted average (0=left, 0.5=center, 1=right)
+    _BIAS_POSITIONS = {
+        "Left": 0.0, "Lean Left": 0.15, "Left-Center": 0.3,
+        "Center": 0.5,
+        "Right-Center": 0.7, "Lean Right": 0.85, "Right": 1.0,
+    }
+
     def _update_bias_balance(self):
-        """Draw a stacked horizontal bar showing feed bias distribution."""
+        """Compute bias arrow position and draw the gradient bar with indicator."""
+        feeds = self.storage.get_feeds()
+        if not feeds:
+            self._bias_arrow_pos = 0.5
+        else:
+            positions = [self._BIAS_POSITIONS.get(f.get("bias", ""), 0.5) for f in feeds]
+            self._bias_arrow_pos = sum(positions) / len(positions)
+        self._draw_bias_bar()
+
+    def _draw_bias_bar(self, pulse_t=0.0):
+        """Draw the gradient bias line with a pulsing arrow indicator."""
         canvas = self._bias_canvas
         canvas.delete("all")
         w = canvas.winfo_width()
@@ -1584,55 +1620,82 @@ class NewsAggregatorApp:
         if w < 20 or h < 5:
             return
 
-        feeds = self.storage.get_feeds()
-        if not feeds:
-            return
+        # 3-stop horizontal gradient: blue -> green -> orange
+        bar_y = h // 2
+        bar_thickness = 4
+        y0 = bar_y - bar_thickness // 2
+        y1 = bar_y + bar_thickness // 2
+        # Brightness multiplier from pulse (0.5 dim .. 1.0 bright)
+        bright = 0.65 + 0.35 * pulse_t
+        for x in range(w):
+            t = x / max(w - 1, 1)
+            if t < 0.5:
+                # blue (#4488ff) -> green (#44ff88)
+                lt = t * 2.0
+                r = int((0x44 + (0x44 - 0x44) * lt) * bright)
+                g = int((0x88 + (0xff - 0x88) * lt) * bright)
+                b = int((0xff + (0x88 - 0xff) * lt) * bright)
+            else:
+                # green (#44ff88) -> orange (#ff8844)
+                lt = (t - 0.5) * 2.0
+                r = int((0x44 + (0xff - 0x44) * lt) * bright)
+                g = int((0xff + (0x88 - 0xff) * lt) * bright)
+                b = int((0x88 + (0x44 - 0x88) * lt) * bright)
+            r, g, b = min(r, 255), min(g, 255), min(b, 255)
+            color = f"#{r:02x}{g:02x}{b:02x}"
+            canvas.create_line(x, y0, x, y1, fill=color)
 
-        # Group biases into display buckets
-        bias_buckets = {
-            "Left": {"color": "#4488ff", "count": 0, "biases": {"Left", "Lean Left"}},
-            "Left-Center": {"color": "#4488ff", "count": 0, "biases": {"Left-Center"}},
-            "Center": {"color": "#44ff88", "count": 0, "biases": {"Center"}},
-            "Right-Center": {"color": "#ff8844", "count": 0, "biases": {"Right-Center"}},
-            "Right": {"color": "#ff8844", "count": 0, "biases": {"Lean Right", "Right"}},
-        }
-        unknown_count = 0
+        # Glow line (wider, dimmer) behind the bar
+        for x in range(0, w, 2):
+            t = x / max(w - 1, 1)
+            if t < 0.5:
+                lt = t * 2.0
+                r = int((0x44 + (0x44 - 0x44) * lt) * bright * 0.3)
+                g = int((0x88 + (0xff - 0x88) * lt) * bright * 0.3)
+                b = int((0xff + (0x88 - 0xff) * lt) * bright * 0.3)
+            else:
+                lt = (t - 0.5) * 2.0
+                r = int((0x44 + (0xff - 0x44) * lt) * bright * 0.3)
+                g = int((0xff + (0x88 - 0xff) * lt) * bright * 0.3)
+                b = int((0x88 + (0x44 - 0x88) * lt) * bright * 0.3)
+            r, g, b = min(r, 255), min(g, 255), min(b, 255)
+            glow_color = f"#{r:02x}{g:02x}{b:02x}"
+            canvas.create_line(x, y0 - 3, x, y1 + 3, fill=glow_color)
 
-        for feed in feeds:
-            bias = feed.get("bias", "Unknown")
-            placed = False
-            for bucket in bias_buckets.values():
-                if bias in bucket["biases"]:
-                    bucket["count"] += 1
-                    placed = True
-                    break
-            if not placed:
-                unknown_count += 1
+        # Arrow indicator at bias position
+        arrow_x = int(self._bias_arrow_pos * (w - 1))
+        arrow_size = 5
+        # Arrow color pulses between cyan and white
+        arrow_bright = 0.7 + 0.3 * pulse_t
+        ar = int(0x00 + (0xff - 0x00) * arrow_bright)
+        ag = int(0xff * arrow_bright)
+        ab = int(0xff * arrow_bright)
+        arrow_color = f"#{min(ar,255):02x}{min(ag,255):02x}{min(ab,255):02x}"
+        # Downward-pointing triangle above the bar
+        canvas.create_polygon(
+            arrow_x, y0 - 2,
+            arrow_x - arrow_size, y0 - 2 - arrow_size - 2,
+            arrow_x + arrow_size, y0 - 2 - arrow_size - 2,
+            fill=arrow_color, outline=""
+        )
+        # Small glow dot on the bar at arrow position
+        canvas.create_oval(
+            arrow_x - 3, bar_y - 3, arrow_x + 3, bar_y + 3,
+            fill=arrow_color, outline=""
+        )
 
-        # Build ordered segment list
-        segments = []
-        for label, info in bias_buckets.items():
-            if info["count"] > 0:
-                segments.append((label, info["count"], info["color"]))
-        if unknown_count > 0:
-            segments.append(("Other", unknown_count, "#555555"))
+        # Endpoint labels
+        canvas.create_text(4, h - 3, text="L", anchor=tk.SW,
+                           fill="#4488ff", font=("Consolas", 7, "bold"))
+        canvas.create_text(w // 2, h - 3, text="C", anchor=tk.S,
+                           fill="#44ff88", font=("Consolas", 7, "bold"))
+        canvas.create_text(w - 4, h - 3, text="R", anchor=tk.SE,
+                           fill="#ff8844", font=("Consolas", 7, "bold"))
 
-        total = sum(s[1] for s in segments)
-        if total == 0:
-            return
-
-        # Draw segments
-        x = 1
-        bar_h = h - 2
-        for label, count, color in segments:
-            seg_w = max(1, int((count / total) * (w - 2)))
-            canvas.create_rectangle(x, 1, x + seg_w, bar_h + 1,
-                                    fill=color, outline="")
-            # Label if segment is wide enough
-            if seg_w > 24:
-                canvas.create_text(x + seg_w // 2, h // 2, text=str(count),
-                                   fill="#000000", font=("Consolas", 8, "bold"))
-            x += seg_w
+    def _animate_bias_pulse(self):
+        """Pulse the bias bar gradient — called from _anim_tick."""
+        pulse_t = (math.sin(self._anim_frame * 0.06) + 1.0) / 2.0
+        self._draw_bias_bar(pulse_t)
 
     _TRENDING_STOP_WORDS = frozenset({
         "the", "a", "an", "in", "on", "for", "to", "of", "is", "and", "or",
@@ -1648,21 +1711,17 @@ class NewsAggregatorApp:
     })
 
     def _update_trending(self, articles: list):
-        """Extract trending words from article titles and display as a word cloud."""
-        text_widget = self._trending_text
-        text_widget.configure(state=tk.NORMAL)
-        text_widget.delete("1.0", tk.END)
-
-        # Remove old tag bindings
-        for tag in text_widget.tag_names():
-            if tag.startswith("tw_"):
-                text_widget.tag_delete(tag)
+        """Extract trending words and set up the cycling slot display."""
+        self._trending_canvas.delete("all")
+        self._trending_pool = []
+        self._trending_slots = []
+        self._trending_pool_idx = 0
+        self._trending_initial_done = False
 
         if not articles:
-            text_widget.configure(state=tk.DISABLED)
             return
 
-        # Extract and count words
+        # Extract and count words — grab a large pool
         word_counts = Counter()
         for article in articles:
             title = article.get("title", "")
@@ -1671,49 +1730,244 @@ class NewsAggregatorApp:
                 if len(word) >= 3 and word not in self._TRENDING_STOP_WORDS:
                     word_counts[word] += 1
 
-        top_words = word_counts.most_common(12)
+        top_words = word_counts.most_common(30)
         if not top_words:
-            text_widget.configure(state=tk.DISABLED)
             return
 
-        # Configure font tags
-        text_widget.tag_configure("tw_large", font=("Consolas", 11, "bold"),
-                                  foreground=DARK_THEME["cyan"])
-        text_widget.tag_configure("tw_medium", font=("Consolas", 10),
-                                  foreground=DARK_THEME["magenta"])
-        text_widget.tag_configure("tw_small", font=("Consolas", 9),
-                                  foreground=DARK_THEME["fg_secondary"])
-
+        colors = [DARK_THEME["cyan"], DARK_THEME["magenta"],
+                  DARK_THEME["fg_secondary"]]
         for i, (word, count) in enumerate(top_words):
-            if i > 0:
-                text_widget.insert(tk.END, "  ")
-            # Size tier
-            if i < 3:
-                size_tag = "tw_large"
-            elif i < 7:
-                size_tag = "tw_medium"
+            if i < 4:
+                color = colors[0]
+            elif i < 12:
+                color = colors[1]
             else:
-                size_tag = "tw_small"
+                color = colors[2]
+            self._trending_pool.append({"word": word, "count": count, "color": color})
 
-            # Per-word clickable tag
-            tag_name = f"tw_{word}"
-            text_widget.insert(tk.END, word, (size_tag, tag_name))
-            text_widget.tag_configure(tag_name, foreground="")  # inherit from size tag
-            text_widget.tag_bind(tag_name, "<Button-1>",
-                                 lambda e, w=word: self._click_trending_word(w))
-            text_widget.tag_bind(tag_name, "<Enter>",
-                                 lambda e, t=tag_name: text_widget.tag_configure(
-                                     t, underline=True))
-            text_widget.tag_bind(tag_name, "<Leave>",
-                                 lambda e, t=tag_name: text_widget.tag_configure(
-                                     t, underline=False))
+        self._layout_trending_slots()
 
-        text_widget.configure(state=tk.DISABLED)
+    # Characters the split-flap cycles through before settling
+    _FLAP_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#@&!?-"
+
+    def _layout_trending_slots(self):
+        """Compute compact flowing slot positions and populate initial words."""
+        canvas = self._trending_canvas
+        w = canvas.winfo_width()
+        h = canvas.winfo_height()
+        if w < 30 or h < 10 or not self._trending_pool:
+            return
+
+        canvas.delete("all")
+        char_w = 8    # per-character cell width
+        cell_h = 14   # cell height
+        row_gap = 3   # gap between rows
+        word_gap = 10 # gap between word slots
+
+        max_word_len = max(len(e["word"]) for e in self._trending_pool)
+        slot_w = max_word_len * char_w
+
+        # Calculate grid dimensions for centering
+        cols = max(1, (w + word_gap) // (slot_w + word_gap))
+        rows = max(1, (h + row_gap) // (cell_h + row_gap))
+        total_slots = cols * rows
+        grid_w = cols * slot_w + (cols - 1) * word_gap
+        grid_h = rows * cell_h + (rows - 1) * row_gap
+        origin_x = (w - grid_w) // 2
+        origin_y = (h - grid_h) // 2
+
+        # Draw background cells and flow slots
+        self._trending_slots = []
+        self._flap_char_w = char_w
+        self._flap_cell_h = cell_h
+        self._flap_max_len = max_word_len
+        slot_idx = 0
+
+        for row in range(rows):
+            for col in range(cols):
+                x = origin_x + col * (slot_w + word_gap)
+                y = origin_y + row * (cell_h + row_gap)
+                # Draw flap cell backgrounds for this slot
+                for ci in range(max_word_len):
+                    cx = x + ci * char_w
+                    canvas.create_rectangle(
+                        cx, y, cx + char_w - 1, y + cell_h,
+                        fill="#0c0c18", outline="#1a1a2e", tags="flap_bg"
+                    )
+                slot = {
+                    "x": x, "y": y,
+                    "char_items": [None] * max_word_len,
+                    "pool_entry": None,
+                    "prev_word": "",
+                    "target_word": "",
+                    "settle_frames": [0] * max_word_len,
+                    "state": "idle",
+                    "flip_start": 0,
+                    "tag": f"ts_{slot_idx}",
+                }
+                self._trending_slots.append(slot)
+                slot_idx += 1
+
+        # Assign initial words and kick off flipping
+        self._trending_pool_idx = 0
+        for i, slot in enumerate(self._trending_slots):
+            if self._trending_pool_idx < len(self._trending_pool):
+                entry = self._trending_pool[self._trending_pool_idx]
+                self._trending_pool_idx += 1
+                slot["pool_entry"] = entry
+                slot["target_word"] = entry["word"].upper().ljust(self._flap_max_len)
+                # Stagger initial flips so they cascade across the board
+                slot["state"] = "flipping"
+                slot["flip_start"] = self._anim_frame + i * 2
+                # Each char settles with a cascade delay
+                for ci in range(self._flap_max_len):
+                    slot["settle_frames"][ci] = slot["flip_start"] + 4 + ci * 1
+
+        # Schedule first board-wide flip
+        interval = self._trending_intervals[self._trending_interval_idx % len(self._trending_intervals)]
+        self._trending_next_flip = self._anim_frame + interval
+
+    def _flip_all_trending(self):
+        """Flip the entire board to new words. Called by timer or refresh button."""
+        if not self._trending_slots or not self._trending_pool:
+            return
+        frame = self._anim_frame
+        for i, slot in enumerate(self._trending_slots):
+            if slot["state"] == "flipping":
+                continue  # already mid-flip
+            old_word = slot["pool_entry"]["word"] if slot["pool_entry"] else None
+            new_entry = self._next_pool_word(exclude_word=old_word)
+            if new_entry:
+                slot["pool_entry"] = new_entry
+                slot["target_word"] = new_entry["word"].upper().ljust(self._flap_max_len)
+            slot["state"] = "flipping"
+            slot["flip_start"] = frame + i * 2  # cascade stagger across slots
+            for ci in range(self._flap_max_len):
+                slot["settle_frames"][ci] = slot["flip_start"] + 4 + ci * 1
+            # Unbind during flip
+            canvas = self._trending_canvas
+            canvas.tag_unbind(slot["tag"], "<Button-1>")
+            canvas.tag_unbind(slot["tag"], "<Enter>")
+            canvas.tag_unbind(slot["tag"], "<Leave>")
+
+        # Cycle to next interval
+        self._trending_interval_idx = (self._trending_interval_idx + 1) % len(self._trending_intervals)
+        interval = self._trending_intervals[self._trending_interval_idx]
+        self._trending_next_flip = frame + interval
+
+    def _next_pool_word(self, exclude_word=None):
+        """Get the next word from the pool, cycling. Skip duplicates of visible words."""
+        if not self._trending_pool:
+            return None
+        visible_words = {s["pool_entry"]["word"] for s in self._trending_slots
+                         if s["pool_entry"] and s["state"] != "idle"}
+        for _ in range(len(self._trending_pool)):
+            entry = self._trending_pool[self._trending_pool_idx % len(self._trending_pool)]
+            self._trending_pool_idx = (self._trending_pool_idx + 1) % len(self._trending_pool)
+            if exclude_word and entry["word"] == exclude_word:
+                continue
+            if entry["word"] not in visible_words:
+                return entry
+        return self._trending_pool[self._trending_pool_idx % len(self._trending_pool)]
 
     def _click_trending_word(self, word: str):
         """Set search filter to the clicked trending word."""
-        self.search_var.set(word)
+        self.search_var.set(word.strip().lower())
         self.refresh_articles()
+
+    def _animate_trending(self):
+        """Split-flap display animation. Called from _anim_tick."""
+        if not self._trending_slots:
+            return
+        canvas = self._trending_canvas
+        frame = self._anim_frame
+        char_w = self._flap_char_w
+        cell_h = self._flap_cell_h
+        max_len = self._flap_max_len
+        flap_chars = self._FLAP_CHARS
+
+        # Check global flip timer
+        if (self._trending_next_flip > 0 and frame >= self._trending_next_flip
+                and any(s["state"] == "settled" for s in self._trending_slots)):
+            self._flip_all_trending()
+
+        for slot in self._trending_slots:
+            entry = slot["pool_entry"]
+            if not entry:
+                continue
+            tag = slot["tag"]
+
+            if slot["state"] == "flipping":
+                target = slot["target_word"]
+                all_settled = True
+
+                for ci in range(max_len):
+                    settle_at = slot["settle_frames"][ci]
+                    cx = slot["x"] + ci * char_w
+                    cy = slot["y"]
+
+                    if frame >= settle_at:
+                        # This char has settled — show target
+                        ch = target[ci] if ci < len(target) else " "
+                        color = entry["color"] if ch.strip() else "#0c0c18"
+                        if slot["char_items"][ci] is None:
+                            item = canvas.create_text(
+                                cx + char_w // 2, cy + cell_h // 2,
+                                text=ch, font=("Consolas", 9, "bold"),
+                                fill=color, anchor=tk.CENTER,
+                                tags=(tag, f"{tag}_c{ci}")
+                            )
+                            slot["char_items"][ci] = item
+                        else:
+                            canvas.itemconfigure(slot["char_items"][ci],
+                                                 text=ch, fill=color,
+                                                 font=("Consolas", 9, "bold"))
+                    elif frame >= slot["flip_start"]:
+                        # Still flipping — show random char
+                        all_settled = False
+                        ch = random.choice(flap_chars)
+                        color = "#667744"
+                        if slot["char_items"][ci] is None:
+                            item = canvas.create_text(
+                                cx + char_w // 2, cy + cell_h // 2,
+                                text=ch, font=("Consolas", 9),
+                                fill=color, anchor=tk.CENTER,
+                                tags=(tag, f"{tag}_c{ci}")
+                            )
+                            slot["char_items"][ci] = item
+                        else:
+                            canvas.itemconfigure(slot["char_items"][ci],
+                                                 text=ch, fill=color,
+                                                 font=("Consolas", 9))
+                    else:
+                        all_settled = False
+
+                if all_settled:
+                    slot["state"] = "settled"
+                    # Bind click/hover on the whole slot tag
+                    word = entry["word"]
+                    canvas.tag_bind(tag, "<Button-1>",
+                                    lambda e, w=word: self._click_trending_word(w))
+                    canvas.tag_bind(tag, "<Enter>",
+                                    lambda e, t=tag: (
+                                        canvas.itemconfigure(t, fill=DARK_THEME["neon_yellow"]),
+                                        canvas.configure(cursor="hand2")))
+                    canvas.tag_bind(tag, "<Leave>",
+                                    lambda e, t=tag, s=slot: self._flap_hover_leave(t, s))
+
+    def _flap_hover_leave(self, tag, slot):
+        """Restore settled char colors on hover leave."""
+        canvas = self._trending_canvas
+        canvas.configure(cursor="")
+        entry = slot.get("pool_entry")
+        if not entry:
+            return
+        target = slot["target_word"]
+        for ci, item_id in enumerate(slot["char_items"]):
+            if item_id:
+                ch = target[ci] if ci < len(target) else " "
+                color = entry["color"] if ch.strip() else "#0c0c18"
+                canvas.itemconfigure(item_id, fill=color)
 
     def _display_flat_articles(self, articles: list):
         """Display articles without clustering."""
@@ -4560,7 +4814,7 @@ class NewsAggregatorApp:
 
     def _anim_tick(self):
         """Master animation tick at ~30fps."""
-        self._anim_frame = (self._anim_frame + 1) % 3600
+        self._anim_frame += 1
 
         # Ticker
         if self._ticker_running:
@@ -4580,6 +4834,13 @@ class NewsAggregatorApp:
 
         # Title glow
         self._animate_title_glow()
+
+        # Bias balance pulse
+        if self._anim_frame % 2 == 0:  # 15fps is plenty for this
+            self._animate_bias_pulse()
+
+        # Trending word cloud
+        self._animate_trending()
 
         # Neon sweep line
         self._draw_title_neon_line()

@@ -676,7 +676,7 @@ These features reduce daily article count to a manageable ~20-30 articles.
 - [x] **Recency Window** - Dropdown: 6h/12h/24h/48h/Week/All
 - [x] **Smart Daily Cap per Source** - Dropdown: 5/10/15/20/No Limit per feed, ranked by quality
 
-### Medium Priority
+### UI Enhancements
 - [x] **Keyboard shortcuts** - Simplified: ↑/↓ navigate, Enter open, M read, H hide
 - [x] **Wikipedia hyperlinks** - Comprehensive entity highlighting with ~1,780 entries (Session 11)
 - [x] **Ticker tape** - Scrolling unread headlines with click/hover interaction (Session 12)
@@ -687,6 +687,23 @@ These features reduce daily article count to a manageable ~20-30 articles.
 - [ ] Feed folders/grouping
 - [ ] Article tagging/bookmarking
 - [ ] Notification for new articles
+- [ ] **Alternating ticker title colors** - Vary headline colors in the ticker bar
+- [ ] **Subtler refresh animation** - Current animation on refresh is too aggressive
+- [ ] **Empty preview area state** - Preview looks bare with no article selected; needs placeholder/default content
+- [ ] **Boot screen typewriter effect** - Boot text should type in character-by-character
+- [ ] **Summary panel highlighting** - Text in summary panel needs more regular/consistent highlighting
+- [ ] **Non-standard UI exploration** - Explore UI paradigms outside typical Windows conventions
+
+### More Source Feeds
+- [ ] **Evaluate new feeds via scoring system** - Use existing bias/factual/noise scoring to identify and add high-quality sources
+
+### Source Feed Integrity
+- [ ] **Author credibility in article scores** - Tie author reputation into scoring more reliably; prefer offline solutions; investigate journalist credibility/bias databases
+- [ ] **Additional bias/credibility tracking sources** - Find sources beyond MBFC that track publisher bias and credibility; ping periodically and update; visualize rating shifts over time as line graphs
+- [ ] **Ground News methodology** - Research their approach (bias ratings, coverage analysis, blind spot detection) and evaluate what fits without compromising project goals
+
+### Easter Eggs
+- [ ] **Brainstorm ideas** - Hidden interactions, secret key combos, fun surprises fitting the cyberpunk/hacker aesthetic
 
 ### Low Priority
 - [ ] Offline reading mode (cache full article text)

@@ -3,8 +3,8 @@
 ## Project Goal
 Create a desktop news aggregator that delivers factual news via RSS feeds while filtering out sensationalism, opinion pieces, and propaganda.
 
-**Last Updated:** 2026-01-28
-**Status:** v2.1 - UI Overhaul & Neon Border Frame
+**Last Updated:** 2026-01-29
+**Status:** v2.1 - Diagonal Gradient Effects
 
 ---
 
@@ -626,6 +626,44 @@ _play_boot_sequence()     # Typewriter intro → starts animation loop
   - AI/ML ops (transformers, RLHF, hallucinations)
   - News/media (astroturf, echo chambers, bot detection)
   - Retro computing (punch cards, HIMEM.SYS, floppy disks)
+
+### Session 16 - 2026-01-29: Diagonal Gradient Effects
+
+**Diagonal Gradient System (PIL-based):**
+- New `_create_gradient_image()` helper using PIL diagonal line drawing
+- Returns `ImageTk.PhotoImage` stored in `_gradient_cache` to prevent GC
+- Color blends from top-left (color1) to bottom-right (color2) along anti-diagonals
+
+**Toolbar Gradient Background:**
+- Container frame with gradient Canvas placed behind widgets via `place()`
+- Gradient: dark cyan-tint (`#0a1028`) → dark magenta-tint (`#280a18`)
+- All widgets remain in a standard Frame for reliable layout
+- Drag bindings on both canvas and frame for full coverage
+
+**Panel Header Gradient Bars:**
+- 20px Canvas strips inside FEEDS, ARTICLES, and PREVIEW panels
+- LabelFrame `text=""` — headers now rendered via `create_text()` on gradient canvas
+- Feeds & Articles: cyan-tinted gradient (`#0a1028` → `#1a0a20`)
+- Preview: magenta-tinted gradient (`#1a0a28` → `#280a18`)
+- `_update_read_counter()` now updates canvas text directly for "X/Y READ" display
+
+**Border Wave Diagonal Gradient:**
+- Each border segment stores a diagonal factor based on `(x+y)/(w+h)`
+- Top-left segments (factor≈0) glow cyan, bottom-right (factor≈1) glow magenta
+- Both chase waves use the same position-based color blend
+- Smooth color transition around entire perimeter using existing `_lerp_color()`
+
+**Gradient Buttons:**
+- New `_create_gradient_button()` creates canvas-based buttons with gradient fill
+- Normal state: dark cyan→magenta gradient, cyan text
+- Hover state: brighter gradient (`#2a1250` → `#50122a`), white text
+- Disabled state: darker muted gradient, secondary text color
+- Replaced: Refresh, Mark All Read, Clear, Open in Browser
+- Window controls (−, □, ✕) and Settings label unchanged
+
+**Other:**
+- Removed redundant noise score from preview panel meta info
+- PIL import moved to top level (was previously inline in favicon/icon code)
 
 ---
 

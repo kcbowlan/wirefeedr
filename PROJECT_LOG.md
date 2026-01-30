@@ -3,8 +3,8 @@
 ## Project Goal
 Create a desktop news aggregator that delivers factual news via RSS feeds while filtering out sensationalism, opinion pieces, and propaganda.
 
-**Last Updated:** 2026-01-29
-**Status:** v2.1 - Diagonal Gradient Effects
+**Last Updated:** 2026-01-30
+**Status:** v2.2 - Modular Architecture Refactor
 
 ---
 
@@ -28,8 +28,16 @@ News Aggregate/
 ├── News Aggregator.bat      # Windows launcher (double-click to run)
 ├── PROJECT_LOG.md           # This file
 └── news_aggregator/
-    ├── main.py              # Entry point
-    ├── app.py               # Tkinter GUI (~2700 lines)
+    ├── main.py              # Entry point (23 lines)
+    ├── app.py               # Orchestration, handlers, business logic (~1,100 lines)
+    ├── entities.py          # Entity name databases — pure data (~1,330 lines)
+    ├── constants.py         # Idle messages, stop words — pure data (~316 lines)
+    ├── ui_builders.py       # Widget construction (~746 lines)
+    ├── animations.py        # Visual effects, animation loop, boot sequence (~711 lines)
+    ├── highlighting.py      # Text highlighting, entity detection (~675 lines)
+    ├── ticker.py            # Ticker tape, trending split-flap, bias bar (~534 lines)
+    ├── dialogs.py           # Dialog windows, instance management (~300 lines)
+    ├── window_mgmt.py       # Win32 borderless window, drag/resize (~215 lines)
     ├── feeds.py             # RSS feed fetching/parsing
     ├── storage.py           # SQLite database operations
     ├── filters.py           # Content filtering logic
@@ -664,6 +672,29 @@ _play_boot_sequence()     # Typewriter intro → starts animation loop
 **Other:**
 - Removed redundant noise score from preview panel meta info
 - PIL import moved to top level (was previously inline in favicon/icon code)
+
+### Session 17 - 2026-01-30: Modular Architecture Refactor
+
+**app.py Split (5,690 → 1,100 lines, 81% reduction):**
+- Extracted 8 focused modules using "pass `app` as parameter" pattern
+- Each module defines functions receiving the app instance — no mixins, no circular imports
+- Event handlers stay in app.py so callback bindings don't break
+- Delegation stubs in app.py (thin `def _method(self): module.function(self)`) preserve UI callback compatibility
+
+**New Modules:**
+- `entities.py` (1,330 lines) — pure data: TITLES, KNOWN_PEOPLE, ORGANIZATIONS, COUNTRIES, etc.
+- `constants.py` (316 lines) — IDLE_MESSAGES, TRENDING_STOP_WORDS, FLAP_CHARS, BIAS_POSITIONS
+- `dialogs.py` (300 lines) — AddFeedDialog, ManageFeedsDialog, FilterKeywordsDialog, instance management
+- `highlighting.py` (675 lines) — setup_highlight_tags, apply_highlighting, entity detection
+- `window_mgmt.py` (215 lines) — Win32 borderless window, drag/resize, minimize/maximize
+- `ui_builders.py` (746 lines) — all _build_* and _setup_* widget construction methods
+- `ticker.py` (534 lines) — ticker tape, trending split-flap display, bias balance bar
+- `animations.py` (711 lines) — animation loop, visual effects, typewriter, boot sequence, gradient buttons
+
+**UI Tweaks:**
+- Preview panel given more vertical space (equal weight with articles panel)
+- Refresh button plays .wav sound effect instead of synthesized modem beeps
+- Trending words displayed in random order (high-frequency words still color-highlighted)
 
 ---
 

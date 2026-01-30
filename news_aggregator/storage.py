@@ -257,13 +257,15 @@ class Storage:
             self.conn.commit()
             return None
 
-    def get_articles(self, feed_id: Optional[int] = None, include_read: bool = True,
+    def get_articles(self, feed_id: Optional[int] = None, feed_ids: list = None,
+                     include_read: bool = True,
                      min_score: int = 0, recency_hours: int = 0, max_per_source: int = 0,
                      limit: int = 500) -> list:
         """Get articles with optional filters.
 
         Args:
             feed_id: Filter to specific feed (None = all feeds)
+            feed_ids: Filter to multiple feeds (overrides feed_id if set)
             include_read: Include read articles
             min_score: Minimum objectivity score
             recency_hours: Only show articles from last N hours (0 = no limit)
@@ -280,7 +282,11 @@ class Storage:
         """
         params = [min_score]
 
-        if feed_id is not None:
+        if feed_ids:
+            placeholders = ",".join("?" * len(feed_ids))
+            query += f" AND a.feed_id IN ({placeholders})"
+            params.extend(feed_ids)
+        elif feed_id is not None:
             query += " AND a.feed_id = ?"
             params.append(feed_id)
 
@@ -298,7 +304,7 @@ class Storage:
         cursor.execute(query, params)
         articles = [dict(row) for row in cursor.fetchall()]
 
-        # Apply per-source cap if specified
+        # Apply per-source cap if specified (when showing multiple feeds)
         if max_per_source > 0 and feed_id is None:
             articles = self._apply_per_source_cap(articles, max_per_source)
 
@@ -464,6 +470,15 @@ class Storage:
         cursor = self.conn.cursor()
         cursor.execute("SELECT key, value FROM settings")
         return {row[0]: row[1] for row in cursor.fetchall()}
+
+    def update_feed_category(self, feed_id: int, category: str):
+        """Update the category for a feed."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE feeds SET category = ? WHERE id = ?",
+            (category, feed_id)
+        )
+        self.conn.commit()
 
     def close(self):
         """Close the database connection."""

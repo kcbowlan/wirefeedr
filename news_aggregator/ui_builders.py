@@ -445,6 +445,20 @@ def build_feeds_panel(app):
 
     app.feeds_tree.bind("<<TreeviewSelect>>", app._on_feed_select)
     app.feeds_tree.bind("<Button-3>", app._on_feed_right_click)
+    app.feeds_tree.bind("<Motion>", app._on_feed_hover)
+    app.feeds_tree.bind("<Leave>", app._on_feed_leave)
+
+    # Tag styles for flat grouped feeds list
+    app.feeds_tree.tag_configure("all_item", foreground=DARK_THEME["cyan"],
+                                 font=("Consolas", 10, "bold"))
+    app.feeds_tree.tag_configure("cat_divider", foreground=DARK_THEME["cyan_dim"],
+                                 font=("Consolas", 8),
+                                 background=DARK_THEME["bg_secondary"])
+    app.feeds_tree.tag_configure("feed_item", foreground=DARK_THEME["fg_secondary"],
+                                 font=("Consolas", 9))
+    app.feeds_tree.tag_configure("feed_unread", foreground=DARK_THEME["magenta_dim"],
+                                 font=("Consolas", 9, "bold"))
+    app.feeds_tree.tag_configure("hover", background="#1a1a2e")
 
     # --- Bias Balance Bar ---
     tk.Label(feeds_frame, text="PERSONAL FEED BIAS", bg=DARK_THEME["bg"],

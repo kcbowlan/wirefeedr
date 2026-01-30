@@ -76,6 +76,7 @@ class NewsAggregatorApp:
 
         # State
         self.current_feed_id = None  # None = All feeds
+        self.current_category = None  # None = no category filter
         self.selected_article_id = None
         self.current_author_url = None
         self.is_fetching = False
@@ -120,6 +121,7 @@ class NewsAggregatorApp:
 
         # Hover glow (article list)
         self._hover_item = None
+        self._feed_hover_item = None
 
         # Sash flash (panel divider)
         self._sash_flash_active = False
@@ -428,7 +430,9 @@ class NewsAggregatorApp:
 
         # Add "All Feeds" item
         all_count = self.storage.get_article_count(unread_only=True)
-        self.feeds_tree.insert("", tk.END, iid="all", text=f"All Feeds ({all_count} unread)")
+        self.feeds_tree.insert("", tk.END, iid="all",
+                               text=f"\u25c8 All Feeds ({all_count} unread)",
+                               tags=("all_item",))
 
         # Group feeds by category
         feeds = self.storage.get_feeds()
@@ -440,18 +444,24 @@ class NewsAggregatorApp:
             categories[cat].append(feed)
 
         for category, cat_feeds in sorted(categories.items()):
-            cat_id = self.feeds_tree.insert("", tk.END, text=category, open=True)
+            cat_iid = f"cat_{category}"
+            divider_text = f"\u2500\u2500\u2500 {category.upper()} " + "\u2500" * max(1, 20 - len(category))
+            self.feeds_tree.insert("", tk.END, iid=cat_iid, text=divider_text,
+                                   tags=("cat_divider",))
             for feed in cat_feeds:
                 unread = self.storage.get_article_count(feed["id"], unread_only=True)
-                text = f"{feed['name']} ({unread})"
+                text = f"  {feed['name']} ({unread})"
+                feed_tag = "feed_unread" if unread > 0 else "feed_item"
 
                 # Try to load favicon
                 icon = self._load_favicon_image(feed["id"])
                 if icon:
-                    self.feeds_tree.insert(cat_id, tk.END, iid=f"feed_{feed['id']}",
-                                          text=text, image=icon)
+                    self.feeds_tree.insert("", tk.END, iid=f"feed_{feed['id']}",
+                                          text=text, image=icon,
+                                          tags=(feed_tag,))
                 else:
-                    self.feeds_tree.insert(cat_id, tk.END, iid=f"feed_{feed['id']}", text=text)
+                    self.feeds_tree.insert("", tk.END, iid=f"feed_{feed['id']}",
+                                          text=text, tags=(feed_tag,))
                     # Fetch favicon in background if not cached
                     if not self.storage.get_feed_favicon(feed["id"]):
                         self._fetch_favicon(feed["id"], feed["url"])
@@ -469,8 +479,15 @@ class NewsAggregatorApp:
         max_per_source = int(self._per_source_var.get())
         use_clustering = self._cluster_var.get()
 
+        # Build feed filter based on selection
+        category_feed_ids = None
+        if self.current_category:
+            feeds = self.storage.get_feeds()
+            category_feed_ids = [f["id"] for f in feeds if f["category"] == self.current_category]
+
         articles = self.storage.get_articles(
             feed_id=self.current_feed_id,
+            feed_ids=category_feed_ids,
             include_read=include_read,
             min_score=0,  # Show all scores, let user judge
             recency_hours=recency_hours,
@@ -855,31 +872,105 @@ class NewsAggregatorApp:
         item = selection[0]
         if item == "all":
             self.current_feed_id = None
+            self.current_category = None
         elif item.startswith("feed_"):
             self.current_feed_id = int(item.replace("feed_", ""))
+            self.current_category = None
+        elif item.startswith("cat_"):
+            # Category header — filter to all feeds in this category
+            self.current_feed_id = None
+            self.current_category = item[4:]  # strip "cat_" prefix
         else:
-            # Category header - ignore
             return
 
         self.refresh_articles()
 
-    def _on_feed_right_click(self, event):
-        """Show context menu for feeds."""
+    def _on_feed_hover(self, event):
+        """Apply hover highlight to feed row under cursor."""
         item = self.feeds_tree.identify_row(event.y)
-        if not item or not item.startswith("feed_"):
+        if item == self._feed_hover_item:
+            return
+        # Remove hover from previous item
+        if self._feed_hover_item:
+            try:
+                tags = list(self.feeds_tree.item(self._feed_hover_item, "tags") or ())
+                if "hover" in tags:
+                    tags.remove("hover")
+                    self.feeds_tree.item(self._feed_hover_item, tags=tags)
+            except tk.TclError:
+                pass
+        self._feed_hover_item = item
+        # Apply hover to new item, skip category dividers
+        if item:
+            try:
+                tags = list(self.feeds_tree.item(item, "tags") or ())
+                if "cat_divider" in tags:
+                    return
+                if "hover" not in tags:
+                    tags.append("hover")
+                    self.feeds_tree.item(item, tags=tags)
+            except tk.TclError:
+                pass
+
+    def _on_feed_leave(self, event):
+        """Clear hover when mouse leaves feeds tree."""
+        if self._feed_hover_item:
+            try:
+                tags = list(self.feeds_tree.item(self._feed_hover_item, "tags") or ())
+                if "hover" in tags:
+                    tags.remove("hover")
+                    self.feeds_tree.item(self._feed_hover_item, tags=tags)
+            except tk.TclError:
+                pass
+            self._feed_hover_item = None
+
+    def _on_feed_right_click(self, event):
+        """Show context menu for feeds or categories."""
+        item = self.feeds_tree.identify_row(event.y)
+        if not item:
             return
 
         self.feeds_tree.selection_set(item)
-        feed_id = int(item.replace("feed_", ""))
 
         menu = tk.Menu(self.root, tearoff=0,
                        bg=DARK_THEME["bg_secondary"], fg=DARK_THEME["fg"],
                        activebackground=DARK_THEME["magenta"],
                        activeforeground=DARK_THEME["fg_highlight"])
-        menu.add_command(label="Refresh Feed", command=lambda: self._fetch_single_feed(feed_id))
-        menu.add_command(label="Mark Feed Read", command=lambda: self._mark_feed_read(feed_id))
-        menu.add_separator()
-        menu.add_command(label="Remove Feed", command=lambda: self._remove_feed(feed_id))
+
+        if item.startswith("cat_"):
+            # Category right-click menu
+            category = item[4:]
+            menu.add_command(label="Rename Category...",
+                             command=lambda: self._rename_category(category))
+            menu.add_command(label="Delete Category",
+                             command=lambda: self._delete_category(category))
+        elif item.startswith("feed_"):
+            # Feed right-click menu
+            feed_id = int(item.replace("feed_", ""))
+            menu.add_command(label="Refresh Feed", command=lambda: self._fetch_single_feed(feed_id))
+            menu.add_command(label="Mark Feed Read", command=lambda: self._mark_feed_read(feed_id))
+            menu.add_separator()
+
+            # "Move to" submenu
+            move_menu = tk.Menu(menu, tearoff=0,
+                                bg=DARK_THEME["bg_secondary"], fg=DARK_THEME["fg"],
+                                activebackground=DARK_THEME["magenta"],
+                                activeforeground=DARK_THEME["fg_highlight"])
+            feeds = self.storage.get_feeds()
+            categories = sorted(set(f["category"] for f in feeds))
+            for cat in categories:
+                move_menu.add_command(label=cat,
+                                      command=lambda c=cat: self._move_feed_to_category(feed_id, c))
+            move_menu.add_separator()
+            move_menu.add_command(label="New Category...",
+                                  command=lambda: self._move_feed_to_category(feed_id, None))
+            menu.add_cascade(label="Move to", menu=move_menu)
+
+            menu.add_separator()
+            menu.add_command(label="Remove Feed", command=lambda: self._remove_feed(feed_id))
+        else:
+            return
+
         menu.tk_popup(event.x_root, event.y_root)
 
     def _mark_feed_read(self, feed_id: int):
@@ -897,6 +988,54 @@ class NewsAggregatorApp:
             self.refresh_feeds_list()
             self.refresh_articles()
             self._update_status(f"Removed feed: {feed['name']}")
+
+    def _rename_category(self, old_name: str):
+        """Rename a category, updating all feeds that belong to it."""
+        new_name = simpledialog.askstring("Rename Category", f"New name for '{old_name}':",
+                                          parent=self.root, initialvalue=old_name)
+        if not new_name or new_name == old_name:
+            return
+        feeds = self.storage.get_feeds()
+        for feed in feeds:
+            if feed["category"] == old_name:
+                self.storage.update_feed_category(feed["id"], new_name)
+        if self.current_category == old_name:
+            self.current_category = new_name
+        self.refresh_feeds_list()
+        self.refresh_articles()
+        self._update_status(f"Renamed category '{old_name}' to '{new_name}'")
+
+    def _delete_category(self, category: str):
+        """Delete a category, moving all its feeds to Uncategorized."""
+        if category == "Uncategorized":
+            self._update_status("Cannot delete the Uncategorized category")
+            return
+        if not messagebox.askyesno("Confirm",
+                                    f"Delete category '{category}'?\nFeeds will move to Uncategorized."):
+            return
+        feeds = self.storage.get_feeds()
+        for feed in feeds:
+            if feed["category"] == category:
+                self.storage.update_feed_category(feed["id"], "Uncategorized")
+        if self.current_category == category:
+            self.current_category = None
+        self.refresh_feeds_list()
+        self.refresh_articles()
+        self._update_status(f"Deleted category '{category}'")
+
+    def _move_feed_to_category(self, feed_id: int, category: str):
+        """Move a feed to a different category."""
+        if category is None:
+            category = simpledialog.askstring("New Category", "Category name:",
+                                              parent=self.root)
+            if not category:
+                return
+        self.storage.update_feed_category(feed_id, category)
+        self.refresh_feeds_list()
+        self.refresh_articles()
+        feed = self.storage.get_feed(feed_id)
+        name = feed["name"] if feed else "Feed"
+        self._update_status(f"Moved '{name}' to '{category}'")
 
     def _on_article_select(self, event):
         """Handle article selection — show preview."""

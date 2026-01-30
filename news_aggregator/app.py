@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 import io
 import math
 import random
+import re
+from collections import Counter
 import sys
 import os
 import socket
@@ -1097,16 +1099,48 @@ class NewsAggregatorApp:
             font=("Consolas", 9)
         ).pack(side=tk.LEFT, padx=(4, 0), pady=(8, 0))
 
-        # Feeds treeview
-        self.feeds_tree = ttk.Treeview(feeds_frame, selectmode="browse", show="tree")
+        # Feeds treeview in capped-height container
+        feeds_tree_container = tk.Frame(feeds_frame, bg=DARK_THEME["bg"], height=200)
+        feeds_tree_container.pack(fill=tk.X)
+        feeds_tree_container.pack_propagate(False)
+
+        self.feeds_tree = ttk.Treeview(feeds_tree_container, selectmode="browse", show="tree")
         self.feeds_tree.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
 
-        feeds_scroll = ttk.Scrollbar(feeds_frame, orient=tk.VERTICAL, command=self.feeds_tree.yview)
+        feeds_scroll = ttk.Scrollbar(feeds_tree_container, orient=tk.VERTICAL, command=self.feeds_tree.yview)
         feeds_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.feeds_tree.configure(yscrollcommand=feeds_scroll.set)
 
         self.feeds_tree.bind("<<TreeviewSelect>>", self._on_feed_select)
         self.feeds_tree.bind("<Button-3>", self._on_feed_right_click)
+
+        # --- Bias Balance Bar ---
+        tk.Label(feeds_frame, text="BIAS BALANCE", bg=DARK_THEME["bg"],
+                 fg=DARK_THEME["cyan"], font=("Consolas", 8, "bold")
+        ).pack(fill=tk.X, pady=(6, 1))
+
+        self._bias_canvas = tk.Canvas(feeds_frame, height=30, highlightthickness=0,
+                                       bg=DARK_THEME["bg_secondary"])
+        self._bias_canvas.pack(fill=tk.X, pady=(0, 4))
+        self._bias_canvas.bind("<Configure>", lambda e: self._update_bias_balance())
+
+        # --- Trending Topics ---
+        self._trending_header = tk.Canvas(feeds_frame, height=16, highlightthickness=0,
+                                           bg=DARK_THEME["bg_secondary"])
+        self._trending_header.pack(fill=tk.X, pady=(2, 0))
+        self._trending_header.bind("<Configure>", lambda e: self._draw_panel_header(
+            self._trending_header, "TRENDING", "#0a1028", "#1a0a20", "trend_hdr"))
+
+        self._trending_frame = tk.Frame(feeds_frame, bg=DARK_THEME["bg"])
+        self._trending_frame.pack(fill=tk.BOTH, expand=True, pady=(2, 0))
+
+        self._trending_text = tk.Text(
+            self._trending_frame, wrap=tk.WORD, bg=DARK_THEME["bg"],
+            fg=DARK_THEME["fg_secondary"], font=("Consolas", 9),
+            borderwidth=0, highlightthickness=0, cursor="arrow",
+            state=tk.DISABLED, padx=4, pady=4
+        )
+        self._trending_text.pack(fill=tk.BOTH, expand=True)
 
     def _build_articles_panel(self):
         """Build the articles and preview panel."""
@@ -1482,6 +1516,8 @@ class NewsAggregatorApp:
                     if not self.storage.get_feed_favicon(feed["id"]):
                         self._fetch_favicon(feed["id"], feed["url"])
 
+        self._update_bias_balance()
+
     def refresh_articles(self):
         """Refresh the articles list."""
         self.articles_tree.delete(*self.articles_tree.get_children())
@@ -1522,6 +1558,8 @@ class NewsAggregatorApp:
 
         self._update_ticker()
 
+        self._update_trending(articles)
+
     def _update_read_counter(self, articles: list):
         """Update the articles header canvas with read count."""
         total = len(articles)
@@ -1536,6 +1574,146 @@ class NewsAggregatorApp:
             self._draw_panel_header(
                 self._articles_header, text, "#0a1028", "#1a0a20", "articles_hdr"
             )
+
+    def _update_bias_balance(self):
+        """Draw a stacked horizontal bar showing feed bias distribution."""
+        canvas = self._bias_canvas
+        canvas.delete("all")
+        w = canvas.winfo_width()
+        h = canvas.winfo_height()
+        if w < 20 or h < 5:
+            return
+
+        feeds = self.storage.get_feeds()
+        if not feeds:
+            return
+
+        # Group biases into display buckets
+        bias_buckets = {
+            "Left": {"color": "#4488ff", "count": 0, "biases": {"Left", "Lean Left"}},
+            "Left-Center": {"color": "#4488ff", "count": 0, "biases": {"Left-Center"}},
+            "Center": {"color": "#44ff88", "count": 0, "biases": {"Center"}},
+            "Right-Center": {"color": "#ff8844", "count": 0, "biases": {"Right-Center"}},
+            "Right": {"color": "#ff8844", "count": 0, "biases": {"Lean Right", "Right"}},
+        }
+        unknown_count = 0
+
+        for feed in feeds:
+            bias = feed.get("bias", "Unknown")
+            placed = False
+            for bucket in bias_buckets.values():
+                if bias in bucket["biases"]:
+                    bucket["count"] += 1
+                    placed = True
+                    break
+            if not placed:
+                unknown_count += 1
+
+        # Build ordered segment list
+        segments = []
+        for label, info in bias_buckets.items():
+            if info["count"] > 0:
+                segments.append((label, info["count"], info["color"]))
+        if unknown_count > 0:
+            segments.append(("Other", unknown_count, "#555555"))
+
+        total = sum(s[1] for s in segments)
+        if total == 0:
+            return
+
+        # Draw segments
+        x = 1
+        bar_h = h - 2
+        for label, count, color in segments:
+            seg_w = max(1, int((count / total) * (w - 2)))
+            canvas.create_rectangle(x, 1, x + seg_w, bar_h + 1,
+                                    fill=color, outline="")
+            # Label if segment is wide enough
+            if seg_w > 24:
+                canvas.create_text(x + seg_w // 2, h // 2, text=str(count),
+                                   fill="#000000", font=("Consolas", 8, "bold"))
+            x += seg_w
+
+    _TRENDING_STOP_WORDS = frozenset({
+        "the", "a", "an", "in", "on", "for", "to", "of", "is", "and", "or",
+        "at", "by", "it", "its", "as", "be", "are", "was", "were", "has",
+        "have", "had", "with", "from", "this", "that", "not", "but", "they",
+        "his", "her", "he", "she", "will", "can", "all", "been", "than",
+        "who", "what", "when", "how", "more", "after", "over", "into",
+        "new", "out", "about", "up", "may", "says", "said", "could",
+        "would", "their", "them", "our", "you", "your", "we", "just",
+        "also", "most", "some", "any", "no", "do", "does", "did", "get",
+        "got", "being", "one", "two", "first", "last", "back", "us",
+        "so", "if", "why", "own", "now", "only", "still", "even",
+    })
+
+    def _update_trending(self, articles: list):
+        """Extract trending words from article titles and display as a word cloud."""
+        text_widget = self._trending_text
+        text_widget.configure(state=tk.NORMAL)
+        text_widget.delete("1.0", tk.END)
+
+        # Remove old tag bindings
+        for tag in text_widget.tag_names():
+            if tag.startswith("tw_"):
+                text_widget.tag_delete(tag)
+
+        if not articles:
+            text_widget.configure(state=tk.DISABLED)
+            return
+
+        # Extract and count words
+        word_counts = Counter()
+        for article in articles:
+            title = article.get("title", "")
+            words = re.findall(r"[a-zA-Z']+", title.lower())
+            for word in words:
+                if len(word) >= 3 and word not in self._TRENDING_STOP_WORDS:
+                    word_counts[word] += 1
+
+        top_words = word_counts.most_common(12)
+        if not top_words:
+            text_widget.configure(state=tk.DISABLED)
+            return
+
+        # Configure font tags
+        text_widget.tag_configure("tw_large", font=("Consolas", 11, "bold"),
+                                  foreground=DARK_THEME["cyan"])
+        text_widget.tag_configure("tw_medium", font=("Consolas", 10),
+                                  foreground=DARK_THEME["magenta"])
+        text_widget.tag_configure("tw_small", font=("Consolas", 9),
+                                  foreground=DARK_THEME["fg_secondary"])
+
+        for i, (word, count) in enumerate(top_words):
+            if i > 0:
+                text_widget.insert(tk.END, "  ")
+            # Size tier
+            if i < 3:
+                size_tag = "tw_large"
+            elif i < 7:
+                size_tag = "tw_medium"
+            else:
+                size_tag = "tw_small"
+
+            # Per-word clickable tag
+            tag_name = f"tw_{word}"
+            text_widget.insert(tk.END, word, (size_tag, tag_name))
+            text_widget.tag_configure(tag_name, foreground="")  # inherit from size tag
+            text_widget.tag_bind(tag_name, "<Button-1>",
+                                 lambda e, w=word: self._click_trending_word(w))
+            text_widget.tag_bind(tag_name, "<Enter>",
+                                 lambda e, t=tag_name: text_widget.tag_configure(
+                                     t, underline=True))
+            text_widget.tag_bind(tag_name, "<Leave>",
+                                 lambda e, t=tag_name: text_widget.tag_configure(
+                                     t, underline=False))
+
+        text_widget.configure(state=tk.DISABLED)
+
+    def _click_trending_word(self, word: str):
+        """Set search filter to the clicked trending word."""
+        self.search_var.set(word)
+        self.refresh_articles()
 
     def _display_flat_articles(self, articles: list):
         """Display articles without clustering."""

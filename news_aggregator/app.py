@@ -609,17 +609,36 @@ class NewsAggregatorApp:
 
             for i, feed in enumerate(feeds):
                 try:
-                    articles = self.feed_manager.fetch_feed(feed["url"])
+                    result = self.feed_manager.fetch_feed(feed["url"])
+                    if not result.get("success"):
+                        results.append((feed["name"], 0, 0))
+                        percent = ((i + 1) / total) * 100
+                        self.root.after(0, lambda p=percent: self._update_progress(p))
+                        continue
+                    fetched = result.get("articles", [])
                     new_count = 0
-                    for article in articles:
+                    for article in fetched:
                         article["feed_id"] = feed["id"]
                         article["bias"] = feed.get("bias", "")
                         article["factual"] = feed.get("factual", "")
                         # Apply noise scoring
-                        article["noise_score"] = self.filter_engine.score_article(article)
-                        if self.storage.add_article(article):
+                        article["noise_score"] = self.filter_engine.calculate_objectivity_score(
+                            title=article.get("title", ""),
+                            link=article.get("link", ""),
+                            summary=article.get("summary", ""),
+                            factual_rating=article.get("factual", "")
+                        )
+                        if self.storage.add_article(
+                            feed_id=article["feed_id"],
+                            title=article["title"],
+                            link=article["link"],
+                            summary=article.get("summary", ""),
+                            published=article.get("published"),
+                            author=article.get("author", ""),
+                            noise_score=article.get("noise_score", 0)
+                        ):
                             new_count += 1
-                    results.append((feed["name"], new_count, len(articles)))
+                    results.append((feed["name"], new_count, len(fetched)))
                 except Exception as e:
                     results.append((feed["name"], 0, 0))
 
@@ -698,14 +717,32 @@ class NewsAggregatorApp:
 
         def fetch_thread():
             try:
-                articles = self.feed_manager.fetch_feed(feed["url"])
+                result = self.feed_manager.fetch_feed(feed["url"])
+                if not result.get("success"):
+                    self.root.after(0, lambda: self._update_status(
+                        f"Error fetching {feed['name']}: {result.get('error', 'Unknown error')}"))
+                    return
+                fetched = result.get("articles", [])
                 new_count = 0
-                for article in articles:
+                for article in fetched:
                     article["feed_id"] = feed_id
                     article["bias"] = feed.get("bias", "")
                     article["factual"] = feed.get("factual", "")
-                    article["noise_score"] = self.filter_engine.score_article(article)
-                    if self.storage.add_article(article):
+                    article["noise_score"] = self.filter_engine.calculate_objectivity_score(
+                        title=article.get("title", ""),
+                        link=article.get("link", ""),
+                        summary=article.get("summary", ""),
+                        factual_rating=article.get("factual", "")
+                    )
+                    if self.storage.add_article(
+                        feed_id=article["feed_id"],
+                        title=article["title"],
+                        link=article["link"],
+                        summary=article.get("summary", ""),
+                        published=article.get("published"),
+                        author=article.get("author", ""),
+                        noise_score=article.get("noise_score", 0)
+                    ):
                         new_count += 1
 
                 def finish():

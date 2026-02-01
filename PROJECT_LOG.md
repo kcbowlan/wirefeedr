@@ -3,7 +3,7 @@
 ## Project Goal
 Create a desktop news aggregator that delivers factual news via RSS feeds while filtering out sensationalism, opinion pieces, and propaganda.
 
-**Last Updated:** 2026-01-30
+**Last Updated:** 2026-02-01
 **Status:** v2.2 - Modular Architecture Refactor
 
 ---
@@ -695,6 +695,23 @@ _play_boot_sequence()     # Typewriter intro → starts animation loop
 - Preview panel given more vertical space (equal weight with articles panel)
 - Refresh button plays .wav sound effect instead of synthesized modem beeps
 - Trending words displayed in random order (high-frequency words still color-highlighted)
+
+### Session 18 - 2026-02-01: Critical Feed Fetch Pipeline Fix
+
+**Three silent bugs in fetch pipeline (broken since Session 17 refactor):**
+
+All three errors were swallowed by `except Exception` — status bar reported "Fetched 0 new articles" with no indication of failure.
+
+1. **`fetch_feed()` return type mismatch** — `FeedManager.fetch_feed()` returns a dict `{"success": bool, "articles": [...]}`, but `fetch_all_feeds()` and `_fetch_single_feed()` iterated over it as a list. This looped over dict keys (`"success"`, `"feed_title"`, `"articles"`) instead of actual articles.
+   - Fix: Extract `result.get("articles", [])` and check `result.get("success")` before processing.
+
+2. **`add_article()` parameter mismatch** — `storage.add_article()` expects individual parameters `(feed_id, title, link, summary, published, author, noise_score)` but was called with a single dict, which was passed as the `feed_id` int parameter.
+   - Fix: Unpack article dict into keyword arguments.
+
+3. **`score_article()` doesn't exist** — Code called `self.filter_engine.score_article(article)` but `FilterEngine` has no such method. The correct method is `calculate_objectivity_score(title, link, summary, factual_rating)` with individual string parameters.
+   - Fix: Call `calculate_objectivity_score()` with unpacked fields.
+
+**Both `fetch_all_feeds()` and `_fetch_single_feed()` had all three bugs.**
 
 ---
 

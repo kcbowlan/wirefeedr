@@ -766,6 +766,19 @@ All three errors were swallowed by `except Exception` — status bar reported "F
 ### SIGNAL — Source Integrity, Grading, Noise Abatement & Legitimacy
 Tasks that directly advance the core mission: separating factual news from noise.
 
+**Credibility Scoring Feature (from spec):**
+- [ ] **Pull and examine MBFC data** - Get structured ratings from `drmikecrowe/mbfcext` repo (~9,000 sources, ~1-2MB)
+- [ ] **Build domain normalization** - Extract/normalize publisher domains from feed URLs; handle subdomains (`feeds.reuters.com` → `reuters.com`), regional variants (`bbc.co.uk` / `bbc.com`)
+- [ ] **Create local MBFC JSON lookup** - Ship as local JSON file mapping domains to bias, factual, credibility; no runtime internet dependency
+- [ ] **Match MBFC against current feeds** - Assess coverage rate (target 80-90%), identify gaps
+- [ ] **Build composite scoring (40/60 blend)** - 40% MBFC publisher baseline + 60% Wirefeedr per-article analysis; fall back to 100% Wirefeedr when no MBFC data
+- [ ] **Add score to article feed UI** - Single clickable score per article, cyberpunk aesthetic; optional confidence indicator when MBFC data unavailable
+- [ ] **Build credibility detail panel** - Click score to expand: article-level (objectivity, sensationalism, opinion flags) + publisher-level (bias position, factual level, credibility rating)
+- [ ] **Add per-article credibility logging** - Store publisher, author, date, scores, flags in SQLite for historical accumulation
+- [ ] **Implement rolling averages and trends** - 90-day publisher rolling average, per-author average, anomaly flag for outlier articles; minimum 10 articles before showing trends
+- [ ] **Add About section** - "Facts over noise" copy, Patreon link, GitHub Issues link, credits (v2.1, KC Bowlan + Claude Opus 4.5)
+
+**Other SIGNAL tasks:**
 - [ ] **Author credibility in article scores** - Tie author reputation into scoring more reliably; prefer offline solutions; investigate journalist credibility/bias databases
 - [ ] **Additional bias/credibility tracking sources** - Find sources beyond MBFC that track publisher bias and credibility; ping periodically and update; visualize rating shifts over time as line graphs
 - [ ] **Ground News methodology** - Research their approach (bias ratings, coverage analysis, blind spot detection) and evaluate what fits without compromising project goals

@@ -3,7 +3,7 @@
 ## Project Goal
 Create a desktop news aggregator that delivers factual news via RSS feeds while filtering out sensationalism, opinion pieces, and propaganda.
 
-**Last Updated:** 2026-02-01
+**Last Updated:** 2026-02-02
 **Status:** v2.2 - Modular Architecture Refactor
 
 ---
@@ -33,7 +33,7 @@ News Aggregate/
     ├── entities.py          # Entity name databases — pure data (~1,330 lines)
     ├── constants.py         # Idle messages, stop words — pure data (~316 lines)
     ├── ui_builders.py       # Widget construction (~746 lines)
-    ├── animations.py        # Visual effects, animation loop, boot sequence (~711 lines)
+    ├── animations.py        # Visual effects, animation loop, boot sequence (~1,278 lines)
     ├── highlighting.py      # Text highlighting, entity detection (~675 lines)
     ├── ticker.py            # Ticker tape, trending split-flap, bias bar (~534 lines)
     ├── dialogs.py           # Dialog windows, instance management (~300 lines)
@@ -713,6 +713,40 @@ All three errors were swallowed by `except Exception` — status bar reported "F
 
 **Both `fetch_all_feeds()` and `_fetch_single_feed()` had all three bugs.**
 
+### Session 19 - 2026-02-02: Ambient Effects & CRT Shutdown Polish
+
+**CRT Shutdown Chromatic Aberration:**
+- RGB channel-split effect across all three shutdown phases (vertical compress, horizontal compress, dot fade)
+- Red (`#ff4444`) and blue (`#4444ff`) ghost elements offset from the main white/cyan element
+- Phase 1: red bar 3px above, blue bar 3px below the compressing bar
+- Phase 2: red line 2px above, blue line 2px below the compressing line
+- Phase 3: red dot offset up-left, blue dot offset down-right from the fading dot
+- All color elements fade toward black alongside the main element
+
+**Title Chromatic Aberration Flicker:**
+- WIREFEEDR title rendered on Canvas with red and cyan ghost text offset ±2px
+- Random flicker bursts (5s–1min intervals): ghost text jitters ±2px for 6 frames
+- Snaps back to rest position after burst
+
+**Header Text Glitch:**
+- Rare brief character scramble on panel headers (FEEDS, ARTICLES, PREVIEW, TRENDING)
+- 15% per-character replacement with split-flap characters during burst
+- ±1px position jitter and occasional magenta color flash
+- Random triggers every 15–30 seconds, lasts 8–12 frames
+
+**Matrix Rain on Preview Placeholder:**
+- Katakana, Greek, Cyrillic, math symbols, and digits rain down on empty preview panel
+- Cyan and magenta color palettes with 5-step trail fade
+- Staggered column spawns, variable speed, character mutation every 4 frames
+- "SELECT ARTICLE TO VIEW" centered with backdrop rectangle, color-cycling text
+- Canvas resize handler rebuilds columns on window resize
+
+**Static Noise Bursts:**
+- Random pixel scatter on 1–3 panels (feeds, articles, preview)
+- 15–30 small colored frames per panel per frame, 15–25 frame duration
+- 90% dim dark colors, 10% cyan/magenta accent
+- Triggers every 20–40 seconds
+
 ---
 
 ## Potential Future Enhancements
@@ -743,8 +777,8 @@ Tasks that directly advance the core mission: separating factual news from noise
 Polish, aesthetics, and convenience features.
 
 - [ ] **Subtler refresh animation** - Current animation on refresh is too aggressive
-- [ ] **Empty preview area state** - Preview looks bare with no article selected; needs placeholder/default content
-- [ ] **Boot screen typewriter effect** - Boot text should type in character-by-character
+- [x] **Empty preview area state** - Matrix rain with "SELECT ARTICLE TO VIEW" placeholder
+- [x] **Boot screen typewriter effect** - Boot text should type in character-by-character
 - [ ] **Feed folders/grouping**
 - [ ] **Article tagging/bookmarking**
 - [ ] **Database backup/restore**

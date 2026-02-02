@@ -41,11 +41,11 @@ def update_ticker(app):
         tags = app.articles_tree.item(item_id, "tags")
         if "unread" in tags:
             values = app.articles_tree.item(item_id, "values")
-            # values: (title, source, bias, date, score)
+            # values: (fav, title, source, bias, date, score)
             unread_items.append({
                 "article_id": int(item_id),
-                "title": values[0],
-                "source": values[1],
+                "title": values[1],
+                "source": values[2],
             })
 
     if not unread_items:
@@ -368,20 +368,18 @@ def layout_trending_slots(app):
             app._trending_slots.append(slot)
             slot_idx += 1
 
-    # Assign initial words and kick off flipping
+    # Assign initial words and kick off flipping (cycle pool if more slots than words)
     app._trending_pool_idx = 0
     for i, slot in enumerate(app._trending_slots):
-        if app._trending_pool_idx < len(app._trending_pool):
-            entry = app._trending_pool[app._trending_pool_idx]
-            app._trending_pool_idx += 1
-            slot["pool_entry"] = entry
-            slot["target_word"] = entry["word"].upper().ljust(app._flap_max_len)
-            # Stagger initial flips so they cascade across the board
-            slot["state"] = "flipping"
-            slot["flip_start"] = app._anim_frame + i * 2
-            # Each char settles with a cascade delay
-            for ci in range(app._flap_max_len):
-                slot["settle_frames"][ci] = slot["flip_start"] + 4 + ci * 1
+        entry = app._trending_pool[i % len(app._trending_pool)]
+        slot["pool_entry"] = entry
+        slot["target_word"] = entry["word"].upper().ljust(app._flap_max_len)
+        # Stagger initial flips so they cascade across the board
+        slot["state"] = "flipping"
+        slot["flip_start"] = app._anim_frame + i * 2
+        # Each char settles with a cascade delay
+        for ci in range(app._flap_max_len):
+            slot["settle_frames"][ci] = slot["flip_start"] + 4 + ci * 1
 
     # Schedule first board-wide flip
     interval = app._trending_intervals[app._trending_interval_idx % len(app._trending_intervals)]
@@ -393,14 +391,16 @@ def flip_all_trending(app):
     if not app._trending_slots or not app._trending_pool:
         return
     frame = app._anim_frame
+    # Shuffle pool so each flip round shows a different arrangement
+    random.shuffle(app._trending_pool)
+    pool_idx = 0
     for i, slot in enumerate(app._trending_slots):
         if slot["state"] == "flipping":
             continue  # already mid-flip
-        old_word = slot["pool_entry"]["word"] if slot["pool_entry"] else None
-        new_entry = next_pool_word(app, exclude_word=old_word)
-        if new_entry:
-            slot["pool_entry"] = new_entry
-            slot["target_word"] = new_entry["word"].upper().ljust(app._flap_max_len)
+        entry = app._trending_pool[pool_idx % len(app._trending_pool)]
+        pool_idx += 1
+        slot["pool_entry"] = entry
+        slot["target_word"] = entry["word"].upper().ljust(app._flap_max_len)
         slot["state"] = "flipping"
         slot["flip_start"] = frame + i * 2  # cascade stagger across slots
         for ci in range(app._flap_max_len):
@@ -415,22 +415,6 @@ def flip_all_trending(app):
     app._trending_interval_idx = (app._trending_interval_idx + 1) % len(app._trending_intervals)
     interval = app._trending_intervals[app._trending_interval_idx]
     app._trending_next_flip = frame + interval
-
-
-def next_pool_word(app, exclude_word=None):
-    """Get the next word from the pool, cycling. Skip duplicates of visible words."""
-    if not app._trending_pool:
-        return None
-    visible_words = {s["pool_entry"]["word"] for s in app._trending_slots
-                     if s["pool_entry"] and s["state"] != "idle"}
-    for _ in range(len(app._trending_pool)):
-        entry = app._trending_pool[app._trending_pool_idx % len(app._trending_pool)]
-        app._trending_pool_idx = (app._trending_pool_idx + 1) % len(app._trending_pool)
-        if exclude_word and entry["word"] == exclude_word:
-            continue
-        if entry["word"] not in visible_words:
-            return entry
-    return app._trending_pool[app._trending_pool_idx % len(app._trending_pool)]
 
 
 def click_trending_word(app, word):

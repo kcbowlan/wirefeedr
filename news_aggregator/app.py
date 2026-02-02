@@ -83,6 +83,7 @@ class NewsAggregatorApp:
         self.auto_refresh_job = None
         self.cluster_map = {}  # Maps article_id -> cluster info for expanding
         self.feed_icons = {}  # Cache for PhotoImage objects
+        self._articles_tab = "all"  # "all" or "favorites"
 
         # Ticker state
         self.ticker_canvas = None
@@ -284,7 +285,12 @@ class NewsAggregatorApp:
             self.storage.mark_article_read(article["id"])
             item_id = str(article["id"])
             if self.articles_tree.exists(item_id):
-                self.articles_tree.item(item_id, tags=("read",))
+                tags = list(self.articles_tree.item(item_id, "tags") or ())
+                if "unread" in tags:
+                    tags.remove("unread")
+                if "read" not in tags:
+                    tags.append("read")
+                self.articles_tree.item(item_id, tags=tuple(tags))
             self.refresh_feeds_list()
 
         self.preview_title.configure(text=article["title"])
@@ -485,10 +491,13 @@ class NewsAggregatorApp:
             feeds = self.storage.get_feeds()
             category_feed_ids = [f["id"] for f in feeds if f["category"] == self.current_category]
 
+        favorites_only = self._articles_tab == "favorites"
+
         articles = self.storage.get_articles(
             feed_id=self.current_feed_id,
             feed_ids=category_feed_ids,
             include_read=include_read,
+            favorites_only=favorites_only,
             min_score=0,  # Show all scores, let user judge
             recency_hours=recency_hours,
             max_per_source=max_per_source
@@ -512,6 +521,10 @@ class NewsAggregatorApp:
 
         # Update read counter in articles frame title
         self._update_read_counter(articles)
+
+        # Update favorites tab count
+        fav_count = len(self.storage.get_articles(favorites_only=True, limit=9999))
+        self._tab_fav.configure(text=f"FAVORITES ({fav_count})")
 
         # Reset preview if selected article is no longer visible
         if self.selected_article_id and not self.articles_tree.exists(str(self.selected_article_id)):
@@ -556,6 +569,7 @@ class NewsAggregatorApp:
 
     def _insert_article_row(self, article: dict, title_override: str = None):
         """Insert a single article row into the treeview."""
+        fav = "\u25c6" if article.get("is_favorite") else "\u25c7"
         title = title_override or article["title"]
         source = article.get("feed_name", "Unknown")
         bias = article.get("bias", "")
@@ -580,11 +594,14 @@ class NewsAggregatorApp:
                 pass
         noise = article.get("noise_score", 0)
 
-        tag = "read" if article.get("is_read", False) else "unread"
+        tags = []
+        if article.get("is_favorite"):
+            tags.append("favorite")
+        tags.append("read" if article.get("is_read", False) else "unread")
 
         self.articles_tree.insert("", tk.END, iid=str(article["id"]),
-                                  values=(title, source, bias, date, noise),
-                                  tags=(tag,))
+                                  values=(fav, title, source, bias, date, noise),
+                                  tags=tuple(tags))
 
     # ── Fetch operations ─────────────────────────────────────────
 
@@ -1090,7 +1107,12 @@ class NewsAggregatorApp:
         # Mark as read
         if not article["is_read"]:
             self.storage.mark_article_read(article_id)
-            self.articles_tree.item(str(article_id), tags=("read",))
+            tags = list(self.articles_tree.item(str(article_id), "tags") or ())
+            if "unread" in tags:
+                tags.remove("unread")
+            if "read" not in tags:
+                tags.append("read")
+            self.articles_tree.item(str(article_id), tags=tuple(tags))
             self.refresh_feeds_list()
 
         # Update preview
@@ -1216,9 +1238,14 @@ class NewsAggregatorApp:
                 new_status = not article["is_read"]
                 self.storage.mark_article_read(self.selected_article_id, new_status)
                 self.refresh_feeds_list()
-                # Update just this row's tag
-                tag = "read" if new_status else "unread"
-                self.articles_tree.item(str(self.selected_article_id), tags=(tag,))
+                # Update just this row's tag, preserving favorite
+                item_id = str(self.selected_article_id)
+                tags = list(self.articles_tree.item(item_id, "tags") or ())
+                for t in ("read", "unread"):
+                    if t in tags:
+                        tags.remove(t)
+                tags.append("read" if new_status else "unread")
+                self.articles_tree.item(item_id, tags=tuple(tags))
                 self._update_status(f"Marked {'read' if new_status else 'unread'}")
         return "break"
 
@@ -1227,6 +1254,57 @@ class NewsAggregatorApp:
         if self.selected_article_id:
             self._hide_article(self.selected_article_id)
         return "break"
+
+    def _on_article_click(self, event):
+        """Handle click on articles tree — detect fav column click."""
+        region = self.articles_tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+        col = self.articles_tree.identify_column(event.x)
+        if col != "#1":  # fav is the first column
+            return
+        item = self.articles_tree.identify_row(event.y)
+        if not item:
+            return
+        article_id = int(item)
+        self._toggle_favorite(article_id)
+        return "break"
+
+    def _on_key_toggle_favorite(self, event):
+        """Handle F key - toggle favorite on selected article."""
+        if self.selected_article_id:
+            self._toggle_favorite(self.selected_article_id)
+        return "break"
+
+    def _toggle_favorite(self, article_id: int):
+        """Toggle favorite status for an article."""
+        article = self.storage.get_article(article_id)
+        if not article:
+            return
+        new_status = not article.get("is_favorite", False)
+        self.storage.mark_article_favorite(article_id, new_status)
+
+        # Update row in-place
+        item_id = str(article_id)
+        if self.articles_tree.exists(item_id):
+            values = list(self.articles_tree.item(item_id, "values"))
+            values[0] = "\u25c6" if new_status else "\u25c7"
+            tags = list(self.articles_tree.item(item_id, "tags") or ())
+            if new_status and "favorite" not in tags:
+                tags.append("favorite")
+            elif not new_status and "favorite" in tags:
+                tags.remove("favorite")
+            self.articles_tree.item(item_id, values=values, tags=tuple(tags))
+
+        # Update favorites tab count
+        fav_count = len(self.storage.get_articles(favorites_only=True, limit=9999))
+        self._tab_fav.configure(text=f"FAVORITES ({fav_count})")
+
+        # If on favorites tab and unfavorited, remove the row
+        if self._articles_tab == "favorites" and not new_status:
+            self.articles_tree.delete(item_id)
+
+        self._update_status(f"{'Favorited' if new_status else 'Unfavorited'}")
 
     # ── Window close ────────────────────────────────────────────
 

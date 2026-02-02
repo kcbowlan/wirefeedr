@@ -81,6 +81,9 @@ class Storage:
             )
         """)
 
+        # Migration: Add new columns to existing articles table
+        self._migrate_articles_table(cursor)
+
         # Create indexes for performance
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_feed_id ON articles(feed_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(published DESC)")
@@ -94,6 +97,14 @@ class Storage:
 
         # Initialize default feeds if empty
         self._init_default_feeds()
+
+    def _migrate_articles_table(self, cursor):
+        """Add new columns to existing articles table if they don't exist."""
+        cursor.execute("PRAGMA table_info(articles)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if "is_favorite" not in existing_columns:
+            cursor.execute("ALTER TABLE articles ADD COLUMN is_favorite INTEGER DEFAULT 0")
 
     def _migrate_feeds_table(self, cursor):
         """Add new columns to existing feeds table if they don't exist."""
@@ -258,7 +269,7 @@ class Storage:
             return None
 
     def get_articles(self, feed_id: Optional[int] = None, feed_ids: list = None,
-                     include_read: bool = True,
+                     include_read: bool = True, favorites_only: bool = False,
                      min_score: int = 0, recency_hours: int = 0, max_per_source: int = 0,
                      limit: int = 500) -> list:
         """Get articles with optional filters.
@@ -267,6 +278,7 @@ class Storage:
             feed_id: Filter to specific feed (None = all feeds)
             feed_ids: Filter to multiple feeds (overrides feed_id if set)
             include_read: Include read articles
+            favorites_only: Only return favorited articles
             min_score: Minimum objectivity score
             recency_hours: Only show articles from last N hours (0 = no limit)
             max_per_source: Max articles per feed, ranked by quality (0 = no limit)
@@ -292,6 +304,9 @@ class Storage:
 
         if not include_read:
             query += " AND a.is_read = 0"
+
+        if favorites_only:
+            query += " AND a.is_favorite = 1"
 
         if recency_hours > 0:
             cutoff = (datetime.now() - timedelta(hours=recency_hours)).isoformat()
@@ -356,6 +371,15 @@ class Storage:
         )
         self.conn.commit()
 
+    def mark_article_favorite(self, article_id: int, is_favorite: bool = True):
+        """Mark an article as favorite or unfavorite."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE articles SET is_favorite = ? WHERE id = ?",
+            (1 if is_favorite else 0, article_id)
+        )
+        self.conn.commit()
+
     def mark_all_read(self, feed_id: Optional[int] = None):
         """Mark all articles as read, optionally for a specific feed."""
         cursor = self.conn.cursor()
@@ -389,17 +413,17 @@ class Storage:
         return [dict(row) for row in cursor.fetchall()]
 
     def delete_old_articles(self, days: int = 7):
-        """Delete articles older than specified days."""
+        """Delete articles older than specified days (preserves favorites)."""
         cursor = self.conn.cursor()
         cutoff = (datetime.now() - timedelta(days=days)).isoformat()
-        cursor.execute("DELETE FROM articles WHERE created_at < ?", (cutoff,))
+        cursor.execute("DELETE FROM articles WHERE created_at < ? AND is_favorite = 0", (cutoff,))
         self.conn.commit()
         return cursor.rowcount
 
     def delete_all_articles(self):
-        """Delete all stored articles."""
+        """Delete all stored articles (preserves favorites)."""
         cursor = self.conn.cursor()
-        cursor.execute("DELETE FROM articles")
+        cursor.execute("DELETE FROM articles WHERE is_favorite = 0")
         self.conn.commit()
         return cursor.rowcount
 

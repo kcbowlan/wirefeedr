@@ -202,6 +202,8 @@ def bind_shortcuts(app):
     app.root.bind("M", app._on_key_toggle_read)
     app.root.bind("h", app._on_key_hide)
     app.root.bind("H", app._on_key_hide)
+    app.root.bind("f", app._on_key_toggle_favorite)
+    app.root.bind("F", app._on_key_toggle_favorite)
 
 
 def build_toolbar(app):
@@ -532,17 +534,74 @@ def build_articles_panel(app):
     app._articles_header.bind("<Configure>", lambda e: draw_panel_header(
         app, app._articles_header, "ARTICLES", "#0a1028", "#1a0a20", "articles_hdr"))
 
+    # Tab bar (ALL / FAVORITES)
+    t = DARK_THEME
+    app._articles_tab = "all"
+    tab_frame = tk.Frame(articles_frame, bg=t["bg"])
+    tab_frame.pack(fill=tk.X, pady=(0, 3))
+
+    app._tab_all = tk.Label(
+        tab_frame, text="ALL", bg=t["bg"], fg=t["cyan"],
+        font=("Consolas", 9, "bold"), padx=12, pady=2, cursor="hand2"
+    )
+    app._tab_all.pack(side=tk.LEFT)
+
+    app._tab_fav = tk.Label(
+        tab_frame, text="FAVORITES (0)", bg=t["bg"], fg=t["fg_secondary"],
+        font=("Consolas", 9), padx=12, pady=2, cursor="hand2"
+    )
+    app._tab_fav.pack(side=tk.LEFT)
+
+    # Underline canvases for active tab indicator
+    app._tab_all_line = tk.Canvas(tab_frame, height=2, bg=t["cyan"],
+                                   highlightthickness=0, width=40)
+    app._tab_all_line.place(in_=app._tab_all, relx=0, rely=1.0,
+                             relwidth=1.0, height=2)
+    app._tab_fav_line = tk.Canvas(tab_frame, height=2, bg=t["bg"],
+                                   highlightthickness=0, width=40)
+    app._tab_fav_line.place(in_=app._tab_fav, relx=0, rely=1.0,
+                             relwidth=1.0, height=2)
+
+    def switch_tab(tab_name):
+        app._articles_tab = tab_name
+        if tab_name == "all":
+            app._tab_all.configure(fg=t["cyan"], font=("Consolas", 9, "bold"))
+            app._tab_fav.configure(fg=t["fg_secondary"], font=("Consolas", 9))
+            app._tab_all_line.configure(bg=t["cyan"])
+            app._tab_fav_line.configure(bg=t["bg"])
+        else:
+            app._tab_all.configure(fg=t["fg_secondary"], font=("Consolas", 9))
+            app._tab_fav.configure(fg=t["cyan"], font=("Consolas", 9, "bold"))
+            app._tab_all_line.configure(bg=t["bg"])
+            app._tab_fav_line.configure(bg=t["cyan"])
+        app.refresh_articles()
+
+    app._tab_all.bind("<Button-1>", lambda e: switch_tab("all"))
+    app._tab_fav.bind("<Button-1>", lambda e: switch_tab("favorites"))
+
+    # Hover effects on tabs
+    app._tab_all.bind("<Enter>", lambda e: e.widget.configure(
+        fg=t["magenta"] if app._articles_tab != "all" else t["cyan"]))
+    app._tab_all.bind("<Leave>", lambda e: e.widget.configure(
+        fg=t["cyan"] if app._articles_tab == "all" else t["fg_secondary"]))
+    app._tab_fav.bind("<Enter>", lambda e: e.widget.configure(
+        fg=t["magenta"] if app._articles_tab != "favorites" else t["cyan"]))
+    app._tab_fav.bind("<Leave>", lambda e: e.widget.configure(
+        fg=t["cyan"] if app._articles_tab == "favorites" else t["fg_secondary"]))
+
     # Articles treeview with columns
-    columns = ("title", "source", "bias", "date", "noise")
+    columns = ("fav", "title", "source", "bias", "date", "noise")
     app.articles_tree = ttk.Treeview(articles_frame, columns=columns, show="headings",
                                       selectmode="browse")
 
+    app.articles_tree.heading("fav", text="\u25c6", anchor=tk.CENTER)
     app.articles_tree.heading("title", text="Title", anchor=tk.W)
     app.articles_tree.heading("source", text="Source", anchor=tk.W)
     app.articles_tree.heading("bias", text="Bias", anchor=tk.CENTER)
     app.articles_tree.heading("date", text="Date", anchor=tk.W)
     app.articles_tree.heading("noise", text="Score", anchor=tk.CENTER)
 
+    app.articles_tree.column("fav", width=30, minwidth=30, stretch=False)
     app.articles_tree.column("title", width=400, minwidth=200)
     app.articles_tree.column("source", width=120, minwidth=80)
     app.articles_tree.column("bias", width=90, minwidth=60)
@@ -557,6 +616,7 @@ def build_articles_panel(app):
     app.articles_tree.configure(yscrollcommand=articles_scroll.set)
 
     app.articles_tree.bind("<<TreeviewSelect>>", app._on_article_select)
+    app.articles_tree.bind("<Button-1>", app._on_article_click)
     app.articles_tree.bind("<Double-1>", app._on_article_double_click)
     app.articles_tree.bind("<Button-3>", app._on_article_right_click)
     # Arrow key navigation - bound to tree to prevent default double-movement
@@ -567,6 +627,7 @@ def build_articles_panel(app):
     app.articles_tree.tag_configure("unread", font=("TkDefaultFont", 9, "bold"),
                                       foreground=DARK_THEME["fg"])
     app.articles_tree.tag_configure("read", foreground=DARK_THEME["fg_secondary"])
+    app.articles_tree.tag_configure("favorite", foreground=DARK_THEME["cyan"])
     app.articles_tree.tag_configure("hover", background="#1a1a2e")
 
     # Hover glow on article rows

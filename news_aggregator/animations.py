@@ -8,6 +8,7 @@ import random
 from PIL import Image, ImageDraw, ImageTk
 
 from config import DARK_THEME
+from constants import FLAP_CHARS
 import ticker
 
 
@@ -47,6 +48,9 @@ def anim_tick(app):
     # Sash flash
     animate_sash_flash(app)
 
+    # Header glitch
+    animate_header_glitch(app)
+
     # Feed glows
     animate_feed_glows(app)
 
@@ -68,6 +72,12 @@ def anim_tick(app):
 
     # Typewriter effect
     animate_typewriter(app)
+
+    # Matrix rain (every frame for smooth motion)
+    animate_rain(app)
+
+    # Static noise bursts
+    animate_static_noise(app)
 
     app._anim_id = app.root.after(33, lambda: anim_tick(app))
 
@@ -127,10 +137,35 @@ def pulse_borders(app):
 
 
 def animate_title_glow(app):
-    """Subtle color cycle on the WIREFEEDR title."""
+    """Subtle color cycle on the WIREFEEDR title + chromatic aberration flicker."""
+    if not hasattr(app, '_title_canvas') or app._title_canvas is None:
+        return
+    canvas = app._title_canvas
     t_val = (math.sin(app._anim_frame * (2 * math.pi / 180)) + 1) / 2
     color = lerp_color(DARK_THEME["cyan"], DARK_THEME["magenta"], t_val)
-    app.title_label.configure(fg=color)
+    canvas.itemconfigure(app._title_main, fill=color)
+    # Chromatic aberration flicker — brief burst at random intervals (5s-1m)
+    cx = canvas.winfo_width() // 2
+    cy = canvas.winfo_height() // 2
+    if cx <= 0 or cy <= 0:
+        return
+    if not hasattr(app, '_ab_flicker_next'):
+        app._ab_flicker_next = app._anim_frame + random.randint(150, 1800)
+        app._ab_flicker_end = 0
+    if app._ab_flicker_end and app._anim_frame < app._ab_flicker_end:
+        # Active flicker — jitter the offsets
+        jitter = random.choice([-2, -1, 1, 2])
+        canvas.coords(app._title_ab_red, cx - 3 + jitter, cy)
+        canvas.coords(app._title_ab_cyan, cx + 3 - jitter, cy)
+    elif app._ab_flicker_end and app._anim_frame >= app._ab_flicker_end:
+        # Flicker just ended — snap back, schedule next
+        canvas.coords(app._title_ab_red, cx - 2, cy)
+        canvas.coords(app._title_ab_cyan, cx + 2, cy)
+        app._ab_flicker_end = 0
+        app._ab_flicker_next = app._anim_frame + random.randint(150, 1800)
+    elif app._anim_frame >= app._ab_flicker_next:
+        # Start a new flicker burst
+        app._ab_flicker_end = app._anim_frame + 6
 
 
 def draw_title_neon_line(app):
@@ -299,6 +334,8 @@ def start_glitch(app):
     app._glitch_active = True
     app._glitch_start_frame = app._anim_frame
     app._glitch_duration = 30  # ~1s at 30fps
+    # Trigger static noise burst alongside glitch
+    app._static_noise_next = app._anim_frame
 
 
 def animate_glitch(app):
@@ -379,6 +416,96 @@ def animate_sash_flash(app):
     flash_color = lerp_color(DARK_THEME["cyan"], "#ffffff", t)
     for widget, _, _ in app._neon_panels:
         widget.configure(highlightbackground=flash_color)
+
+
+# -- Header glitch effect -------------------------------------------------
+
+_HEADER_PANELS = [
+    ("_feeds_header", "FEEDS"),
+    ("_articles_header", None),    # dynamic text — read from canvas
+    ("_preview_header", "PREVIEW"),
+    ("_trending_header", "TRENDING"),
+]
+
+
+def animate_header_glitch(app):
+    """Rare brief text glitch on panel headers: char scramble + offset jitter."""
+    if app._header_glitch_active:
+        # Advance glitch frame
+        app._header_glitch_frame += 1
+        canvas = getattr(app, app._header_glitch_target, None)
+        if canvas is None or app._header_glitch_frame > app._header_glitch_duration:
+            # End glitch — restore
+            _header_glitch_end(app)
+            return
+        # Scramble characters — only ~15% chance per char for subtle effect
+        original = app._header_glitch_original
+        scrambled = []
+        for ch in original:
+            if ch == " ":
+                scrambled.append(" ")
+            elif random.random() < 0.15:
+                scrambled.append(random.choice(FLAP_CHARS))
+            else:
+                scrambled.append(ch)
+        scrambled_text = "".join(scrambled)
+        # Apply to canvas
+        text_items = canvas.find_withtag("header_text")
+        if text_items:
+            tid = text_items[0]
+            canvas.itemconfigure(tid, text=scrambled_text)
+            # Subtle offset jitter (±1px)
+            w = canvas.winfo_width()
+            h = canvas.winfo_height()
+            jitter_x = random.randint(-1, 1)
+            canvas.coords(tid, w // 2 + jitter_x, h // 2)
+            # Subtle color flicker — mostly cyan, occasional hint of magenta
+            color = random.choices(
+                [DARK_THEME["cyan"], DARK_THEME["magenta"]],
+                weights=[85, 15],
+            )[0]
+            canvas.itemconfigure(tid, fill=color)
+    else:
+        # Trigger check
+        if app._anim_frame >= app._header_glitch_next:
+            # Pick a random header
+            attr, static_text = random.choice(_HEADER_PANELS)
+            canvas = getattr(app, attr, None)
+            if canvas is None:
+                return
+            # Read current text from canvas
+            text_items = canvas.find_withtag("header_text")
+            if not text_items:
+                return
+            original = canvas.itemcget(text_items[0], "text")
+            if not original:
+                original = static_text or ""
+            app._header_glitch_active = True
+            app._header_glitch_frame = 0
+            app._header_glitch_duration = random.randint(8, 12)
+            app._header_glitch_target = attr
+            app._header_glitch_original = original
+            # Schedule next glitch (15-30s at 30fps)
+            app._header_glitch_next = app._anim_frame + random.randint(450, 900)
+
+
+def _header_glitch_end(app):
+    """Restore header after glitch ends."""
+    canvas = getattr(app, app._header_glitch_target, None)
+    if canvas is not None:
+        text_items = canvas.find_withtag("header_text")
+        if text_items:
+            tid = text_items[0]
+            canvas.itemconfigure(tid, text=app._header_glitch_original)
+            # Reset position to center
+            w = canvas.winfo_width()
+            h = canvas.winfo_height()
+            canvas.coords(tid, w // 2, h // 2)
+            # Restore color — all headers use cyan text
+            canvas.itemconfigure(tid, fill=DARK_THEME["cyan"])
+    app._header_glitch_active = False
+    app._header_glitch_target = None
+    app._header_glitch_original = ""
 
 
 # -- Feed glow (Feature 2) ------------------------------------------------
@@ -745,3 +872,407 @@ def on_grad_btn_leave(app, canvas):
 def on_grad_btn_click(app, canvas):
     if canvas._btn_enabled and canvas._btn_command:
         canvas._btn_command()
+
+
+# -- Matrix rain (preview placeholder) ------------------------------------
+
+# Rain character pool — katakana, greek, cyrillic, symbols, digits
+_RAIN_CHARS = (
+    "\u30a2\u30a4\u30a6\u30a8\u30aa\u30ab\u30ad\u30af\u30b1\u30b3"  # katakana
+    "\u30b5\u30b7\u30b9\u30bb\u30bd\u30bf\u30c1\u30c4\u30c6\u30c8"
+    "\u30ca\u30cb\u30cc\u30cd\u30ce\u30cf\u30d2\u30d5\u30d8\u30db"
+    "\u30de\u30df\u30e0\u30e1\u30e2\u30e4\u30e6\u30e8\u30e9\u30ea"
+    "\u30eb\u30ec\u30ed\u30ef\u30f2\u30f3"
+    "\u0394\u0398\u039b\u039e\u03a0\u03a3\u03a6\u03a8\u03a9"          # greek
+    "\u0414\u0416\u0418\u041b\u042f\u0424\u0426\u0428\u0429\u042d"    # cyrillic
+    "\u2206\u2207\u221e\u2261\u2248\u2234\u2237\u22c5\u2302"          # math/symbols
+    "0123456789"
+)
+
+# Color gradient for rain trails: bright head -> fading tail (cyan/magenta, subtle)
+_RAIN_COLORS_CYAN = ["#2a6677", "#1a4455", "#0f2d3a", "#081c25", "#04111a"]
+_RAIN_COLORS_MAGENTA = ["#6a2a6a", "#441a44", "#2d0f2d", "#1c081c", "#110411"]
+
+
+def on_rain_configure(app, event):
+    """Recalculate rain columns when canvas resizes."""
+    if not app._rain_active or not app._rain_canvas:
+        return
+    w = event.width
+    h = event.height
+    if w < 10 or h < 10:
+        return
+    new_col_count = max(1, w // app._rain_col_width)
+    old_col_count = len(app._rain_columns)
+    if new_col_count == old_col_count:
+        return
+    # Rebuild columns
+    canvas = app._rain_canvas
+    canvas.delete("all")
+    app._rain_columns = []
+    for i in range(new_col_count):
+        app._rain_columns.append({
+            "drops": [],
+            "spawn_cooldown": random.randint(0, 60),  # staggered start
+        })
+    _draw_rain_placeholder_text(app)
+
+
+def _draw_rain_placeholder_text(app):
+    """Draw 'SELECT ARTICLE TO VIEW' centered on rain canvas with backdrop."""
+    canvas = app._rain_canvas
+    if not canvas or not canvas.winfo_exists():
+        return
+    canvas.delete("placeholder")
+    canvas.update_idletasks()
+    w = canvas.winfo_width()
+    h = canvas.winfo_height()
+    if w < 10 or h < 10:
+        return
+    cx, cy = w // 2, h // 2
+    text = "SELECT ARTICLE TO VIEW"
+    # Backdrop rectangle
+    font = ("Consolas", 12, "bold")
+    # Measure text by creating temporary item
+    tid = canvas.create_text(cx, cy, text=text, font=font, fill="", anchor=tk.CENTER)
+    bbox = canvas.bbox(tid)
+    canvas.delete(tid)
+    if bbox:
+        pad = 16
+        canvas.create_rectangle(
+            bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad,
+            fill=DARK_THEME["bg_tertiary"], outline=DARK_THEME["cyan"],
+            width=1, tags="placeholder"
+        )
+    canvas.create_text(
+        cx, cy, text=text, font=font,
+        fill=DARK_THEME["cyan"], anchor=tk.CENTER, tags="placeholder"
+    )
+
+
+def animate_rain(app):
+    """Advance the matrix rain animation one step."""
+    if not app._rain_active or not app._rain_canvas:
+        return
+    canvas = app._rain_canvas
+    if not canvas.winfo_exists():
+        return
+    try:
+        w = canvas.winfo_width()
+        h = canvas.winfo_height()
+    except tk.TclError:
+        return
+    if w < 10 or h < 10:
+        return
+
+    bg_color = DARK_THEME["bg_tertiary"]
+
+    for col_idx, col in enumerate(app._rain_columns):
+        x = col_idx * app._rain_col_width + app._rain_col_width // 2
+
+        # Spawn new drops (subtle — low chance, long cooldowns)
+        col["spawn_cooldown"] -= 1
+        if col["spawn_cooldown"] <= 0 and random.random() < 0.01:
+            length = random.randint(3, 10)
+            speed = random.uniform(0.7, 2.0)
+            colors = random.choice([_RAIN_COLORS_CYAN, _RAIN_COLORS_MAGENTA])
+            drop = {
+                "y": -length * app._rain_row_height,
+                "speed": speed,
+                "length": length,
+                "chars": [random.choice(_RAIN_CHARS) for _ in range(length)],
+                "char_ids": [],
+                "colors": colors,
+            }
+            col["drops"].append(drop)
+            col["spawn_cooldown"] = random.randint(30, 90)
+
+        # Update existing drops
+        expired = []
+        for drop in col["drops"]:
+            drop["y"] += drop["speed"]
+
+            # Mutate a random char every 4 frames
+            if app._anim_frame % 4 == 0 and drop["chars"]:
+                idx = random.randint(0, len(drop["chars"]) - 1)
+                drop["chars"][idx] = random.choice(_RAIN_CHARS)
+
+            # Remove old canvas items
+            for cid in drop["char_ids"]:
+                try:
+                    canvas.delete(cid)
+                except tk.TclError:
+                    pass
+            drop["char_ids"] = []
+
+            # Draw trail characters
+            head_y = drop["y"]
+            drop_colors = drop.get("colors", _RAIN_COLORS_CYAN)
+            for i in range(drop["length"]):
+                cy = head_y - i * app._rain_row_height
+                if cy < -app._rain_row_height or cy > h + app._rain_row_height:
+                    continue
+                # Color: head is bright, tail fades
+                color_idx = min(i, len(drop_colors) - 1)
+                color = drop_colors[color_idx]
+                char = drop["chars"][i] if i < len(drop["chars"]) else "?"
+                cid = canvas.create_text(
+                    x, cy, text=char, fill=color,
+                    font=app._rain_font, anchor=tk.CENTER
+                )
+                drop["char_ids"].append(cid)
+
+            # Check if drop has scrolled off the bottom
+            tail_y = head_y - (drop["length"] - 1) * app._rain_row_height
+            if tail_y > h + app._rain_row_height:
+                expired.append(drop)
+
+        # Clean up expired drops
+        for drop in expired:
+            for cid in drop["char_ids"]:
+                try:
+                    canvas.delete(cid)
+                except tk.TclError:
+                    pass
+            col["drops"].remove(drop)
+
+    # Fade placeholder text between cyan and magenta
+    t_val = (math.sin(app._anim_frame * (2 * math.pi / 180)) + 1) / 2
+    ph_color = lerp_color(DARK_THEME["cyan"], DARK_THEME["magenta"], t_val)
+    for item_id in canvas.find_withtag("placeholder"):
+        item_type = canvas.type(item_id)
+        if item_type == "text":
+            canvas.itemconfigure(item_id, fill=ph_color)
+        elif item_type == "rectangle":
+            canvas.itemconfigure(item_id, outline=ph_color)
+
+    # Keep placeholder text on top
+    canvas.tag_raise("placeholder")
+
+
+# -- Static noise bursts ---------------------------------------------------
+
+_NOISE_DIM_COLORS = ["#2a2a3e", "#303048", "#383850", "#252538", "#2e2e44"]
+_NOISE_ACCENT_COLORS = [DARK_THEME["cyan_dim"], DARK_THEME["magenta_dim"]]
+
+
+def animate_static_noise(app):
+    """Manage static noise bursts — called each anim_tick."""
+    if app._static_noise_active:
+        app._static_noise_frame += 1
+        if app._static_noise_frame >= app._static_noise_duration:
+            _end_static_noise(app)
+            return
+        # Destroy previous frame's pixels, spawn new ones at random positions
+        for w in app._static_noise_canvases:
+            try:
+                w.destroy()
+            except tk.TclError:
+                pass
+        app._static_noise_canvases = []
+        for panel in app._static_noise_panels:
+            try:
+                if not panel.winfo_exists():
+                    continue
+                pw = panel.winfo_width()
+                ph = panel.winfo_height()
+                if pw < 20 or ph < 20:
+                    continue
+                count = random.randint(15, 30)
+                for _ in range(count):
+                    size = random.randint(2, 6)
+                    x = random.randint(0, pw - size)
+                    y = random.randint(0, ph - size)
+                    if random.random() < 0.10:
+                        color = random.choice(_NOISE_ACCENT_COLORS)
+                    else:
+                        color = random.choice(_NOISE_DIM_COLORS)
+                    pixel = tk.Frame(panel, width=size, height=size, bg=color,
+                                     highlightthickness=0, bd=0)
+                    pixel.place(x=x, y=y, width=size, height=size)
+                    app._static_noise_canvases.append(pixel)
+            except tk.TclError:
+                pass
+    else:
+        if app._anim_frame >= app._static_noise_next:
+            _start_static_noise(app)
+
+
+def _start_static_noise(app):
+    """Pick 1-3 panels, begin noise burst with scattered pixel widgets."""
+    candidates = []
+    if hasattr(app, 'feeds_frame'):
+        candidates.append(app.feeds_frame)
+    if hasattr(app, 'articles_frame'):
+        candidates.append(app.articles_frame)
+    if hasattr(app, 'preview_frame'):
+        candidates.append(app.preview_frame)
+    if not candidates:
+        return
+    count = random.randint(1, min(3, len(candidates)))
+    app._static_noise_panels = random.sample(candidates, count)
+    app._static_noise_canvases = []
+    app._static_noise_active = True
+    app._static_noise_frame = 0
+    app._static_noise_duration = random.randint(15, 25)
+    app._static_noise_next = app._anim_frame + random.randint(600, 1200)
+
+
+def _end_static_noise(app):
+    """Destroy noise pixel widgets and reset state."""
+    for w in app._static_noise_canvases:
+        try:
+            w.destroy()
+        except tk.TclError:
+            pass
+    app._static_noise_canvases = []
+    app._static_noise_panels = []
+    app._static_noise_active = False
+    app._static_noise_frame = 0
+
+
+# -- CRT shutdown animation ------------------------------------------------
+
+def play_crt_shutdown(app):
+    """Start CRT power-off animation: overlay black canvas, begin phase chain."""
+    try:
+        w = app.root.winfo_width()
+        h = app.root.winfo_height()
+    except tk.TclError:
+        _crt_shutdown_finish(app)
+        return
+
+    app._shutdown_canvas = tk.Canvas(app.root, bg="#000000", highlightthickness=0)
+    app._shutdown_canvas.place(x=0, y=0, width=w, height=h)
+    tk.Misc.lift(app._shutdown_canvas)
+    app._shutdown_w = w
+    app._shutdown_h = h
+    app._shutdown_phase = 1
+    app._shutdown_frame = 0
+
+    app.root.after(16, lambda: _crt_shutdown_tick(app))
+
+
+def _crt_shutdown_tick(app):
+    """Per-frame CRT shutdown rendering. Phases: vertical compress, horizontal compress, dot fade."""
+    try:
+        canvas = app._shutdown_canvas
+        if not canvas or not canvas.winfo_exists():
+            _crt_shutdown_finish(app)
+            return
+
+        w = app._shutdown_w
+        h = app._shutdown_h
+        cx = w // 2
+        cy = h // 2
+
+        canvas.delete("all")
+        # Black background fill
+        canvas.create_rectangle(0, 0, w, h, fill="#000000", outline="")
+
+        phase = app._shutdown_phase
+        frame = app._shutdown_frame
+
+        if phase == 1:
+            # Vertical compress: bright bar shrinks to 2px horizontal line
+            total_frames = 15
+            t = min(frame / total_frames, 1.0)
+            ease = t * t  # ease-in
+            bar_h = max(2, int(h * (1.0 - ease)))
+            y1 = cy - bar_h // 2
+            y2 = cy + bar_h // 2
+
+            # Cyan glow behind
+            glow_expand = 4
+            glow_color = lerp_color("#003344", "#000000", ease)
+            canvas.create_rectangle(0, y1 - glow_expand, w, y2 + glow_expand,
+                                    fill=glow_color, outline="")
+            # Chromatic aberration: red channel offset above
+            red_color = lerp_color("#ff4444", "#000000", ease)
+            canvas.create_rectangle(0, y1 - 3, w, y2 - 3, fill=red_color, outline="")
+            # Chromatic aberration: blue channel offset below
+            blue_color = lerp_color("#4444ff", "#000000", ease)
+            canvas.create_rectangle(0, y1 + 3, w, y2 + 3, fill=blue_color, outline="")
+            # Bright bar (main white/cyan channel on top)
+            bar_color = lerp_color("#ffffff", "#88ffff", ease)
+            canvas.create_rectangle(0, y1, w, y2, fill=bar_color, outline="")
+
+            app._shutdown_frame += 1
+            if frame >= total_frames:
+                app._shutdown_phase = 2
+                app._shutdown_frame = 0
+
+        elif phase == 2:
+            # Horizontal compress: line shrinks to dot at center
+            total_frames = 12
+            t = min(frame / total_frames, 1.0)
+            ease = t * t
+            line_w = max(4, int(w * (1.0 - ease)))
+            x1 = cx - line_w // 2
+            x2 = cx + line_w // 2
+
+            # Glow
+            glow_color = lerp_color("#003344", "#000000", ease)
+            canvas.create_rectangle(x1 - 3, cy - 3, x2 + 3, cy + 3,
+                                    fill=glow_color, outline="")
+            # Chromatic aberration: red channel offset above
+            red_color = lerp_color("#ff4444", "#000000", ease)
+            canvas.create_rectangle(x1, cy - 3, x2, cy - 1, fill=red_color, outline="")
+            # Chromatic aberration: blue channel offset below
+            blue_color = lerp_color("#4444ff", "#000000", ease)
+            canvas.create_rectangle(x1, cy + 1, x2, cy + 3, fill=blue_color, outline="")
+            # Line/dot (main white channel on top)
+            bar_color = lerp_color("#88ffff", "#ffffff", ease)
+            canvas.create_rectangle(x1, cy - 1, x2, cy + 1, fill=bar_color, outline="")
+
+            app._shutdown_frame += 1
+            if frame >= total_frames:
+                app._shutdown_phase = 3
+                app._shutdown_frame = 0
+
+        elif phase == 3:
+            # Dot fade: small dot fades from white to black
+            total_frames = 8
+            t = min(frame / total_frames, 1.0)
+            dot_size = max(1, int(3 * (1.0 - t)))
+            # Chromatic aberration: red dot offset up-left
+            red_color = lerp_color("#ff4444", "#000000", t)
+            canvas.create_rectangle(cx - dot_size - 2, cy - dot_size - 2,
+                                    cx + dot_size - 2, cy + dot_size - 2,
+                                    fill=red_color, outline="")
+            # Chromatic aberration: blue dot offset down-right
+            blue_color = lerp_color("#4444ff", "#000000", t)
+            canvas.create_rectangle(cx - dot_size + 2, cy - dot_size + 2,
+                                    cx + dot_size + 2, cy + dot_size + 2,
+                                    fill=blue_color, outline="")
+            # Main white dot on top
+            dot_color = lerp_color("#ffffff", "#000000", t)
+            canvas.create_rectangle(cx - dot_size, cy - dot_size,
+                                    cx + dot_size, cy + dot_size,
+                                    fill=dot_color, outline="")
+
+            app._shutdown_frame += 1
+            if frame >= total_frames:
+                _crt_shutdown_finish(app)
+                return
+
+        app.root.after(16, lambda: _crt_shutdown_tick(app))
+
+    except Exception:
+        _crt_shutdown_finish(app)
+
+
+def _crt_shutdown_finish(app):
+    """Final cleanup: close storage, destroy windows."""
+    try:
+        app.storage.close()
+    except Exception:
+        pass
+    try:
+        app.root.destroy()
+    except Exception:
+        pass
+    try:
+        app._owner.destroy()
+    except Exception:
+        pass

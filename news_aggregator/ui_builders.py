@@ -186,6 +186,8 @@ def build_menus(app):
     app._settings_menu.add_separator()
     app._settings_menu.add_command(label="Filter Keywords...", command=app.show_filter_keywords_dialog)
     app._settings_menu.add_separator()
+    app._settings_menu.add_command(label="About WIREFEEDR...", command=app.show_about_dialog)
+    app._settings_menu.add_separator()
     app._settings_menu.add_command(label="Exit", command=app._on_close)
 
 

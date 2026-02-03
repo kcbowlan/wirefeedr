@@ -37,7 +37,7 @@ import window_mgmt
 import animations
 import ticker
 import highlighting
-from dialogs import AddFeedDialog, ManageFeedsDialog, FilterKeywordsDialog, CredibilityDetailDialog
+from dialogs import AddFeedDialog, ManageFeedsDialog, FilterKeywordsDialog, CredibilityDetailDialog, AboutDialog
 import mbfc
 
 
@@ -1011,6 +1011,10 @@ class NewsAggregatorApp:
         if dialog.changed:
             self.filter_engine = FilterEngine(self.storage.get_filter_keywords())
             self._update_status("Filter keywords updated")
+
+    def show_about_dialog(self):
+        """Show the About WIREFEEDR dialog."""
+        AboutDialog(self.root)
 
     # ── Event handlers ───────────────────────────────────────────
 

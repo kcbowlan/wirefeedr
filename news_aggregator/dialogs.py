@@ -604,6 +604,115 @@ class CredibilityDetailDialog:
         btn.pack()
 
 
+class AboutDialog:
+    """Modal 'About WIREFEEDR' dialog with cyberpunk styling."""
+
+    def __init__(self, parent):
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("About WIREFEEDR")
+        self.dialog.geometry("420x380")
+        self.dialog.resizable(False, False)
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        self.dialog.configure(bg=DARK_THEME["bg"])
+        self.dialog.geometry(f"+{parent.winfo_x() + 200}+{parent.winfo_y() + 100}")
+        self.dialog.bind("<Escape>", lambda e: self.dialog.destroy())
+
+        self._build_header()
+        self._build_version()
+        self._build_description()
+        self._build_links()
+        self._build_credits()
+        self._build_close_button()
+
+        self.dialog.wait_window()
+
+    def _build_header(self):
+        hdr = tk.Canvas(self.dialog, height=36, highlightthickness=0,
+                        bg=DARK_THEME["bg"])
+        hdr.pack(fill=tk.X)
+        hdr.update_idletasks()
+        w = max(hdr.winfo_width(), 420)
+        for i in range(w):
+            t = i / max(w - 1, 1)
+            r = int(10 + (26 - 10) * t)
+            g = int(16 + (10 - 16) * t)
+            b = int(40 + (32 - 40) * t)
+            hdr.create_line(i, 0, i, 36, fill=f"#{r:02x}{g:02x}{b:02x}")
+        hdr.create_text(w // 2, 18, text="ABOUT WIREFEEDR",
+                        fill=DARK_THEME["cyan"], font=("Consolas", 12, "bold"))
+
+    def _build_version(self):
+        frame = tk.Frame(self.dialog, bg=DARK_THEME["bg"])
+        frame.pack(fill=tk.X, padx=20, pady=(12, 0))
+        tk.Label(frame, text="v2.1", font=("Consolas", 14, "bold"),
+                 fg=DARK_THEME["cyan"], bg=DARK_THEME["bg"]).pack()
+        tk.Label(frame, text="Facts over noise.", font=("Consolas", 10),
+                 fg=DARK_THEME["fg_secondary"], bg=DARK_THEME["bg"]).pack(pady=(2, 0))
+
+    def _build_description(self):
+        frame = tk.Frame(self.dialog, bg=DARK_THEME["bg"])
+        frame.pack(fill=tk.X, padx=20, pady=(12, 0))
+        tk.Label(frame,
+                 text="RSS news aggregator with real-time credibility\n"
+                      "scoring, MBFC publisher reputation data,\n"
+                      "and transparent bias indicators.",
+                 font=("Consolas", 9), fg=DARK_THEME["fg_secondary"],
+                 bg=DARK_THEME["bg"], justify=tk.CENTER).pack()
+
+    def _build_links(self):
+        frame = tk.Frame(self.dialog, bg=DARK_THEME["bg"])
+        frame.pack(fill=tk.X, padx=20, pady=(14, 0))
+        tk.Label(frame, text="\u2500\u2500 LINKS \u2500" * 5,
+                 font=("Consolas", 9), fg=DARK_THEME["neon_green"],
+                 bg=DARK_THEME["bg"]).pack(anchor=tk.W)
+
+        detail = tk.Frame(frame, bg=DARK_THEME["bg"])
+        detail.pack(fill=tk.X, padx=10, pady=(4, 0))
+
+        github = tk.Label(detail, text="Report Issues on GitHub",
+                          font=("Consolas", 10, "underline"),
+                          fg=DARK_THEME["cyan"], bg=DARK_THEME["bg"],
+                          cursor="hand2")
+        github.pack(anchor=tk.W, pady=(2, 0))
+        github.bind("<Button-1>",
+                    lambda e: webbrowser.open("https://github.com/kcbowlan/wirefeedr/issues"))
+
+        patreon = tk.Label(detail, text="Support on Patreon",
+                           font=("Consolas", 10, "underline"),
+                           fg=DARK_THEME["cyan"], bg=DARK_THEME["bg"],
+                           cursor="hand2")
+        patreon.pack(anchor=tk.W, pady=(2, 0))
+        patreon.bind("<Button-1>",
+                     lambda e: webbrowser.open("https://www.patreon.com/kcbowlan"))
+
+    def _build_credits(self):
+        frame = tk.Frame(self.dialog, bg=DARK_THEME["bg"])
+        frame.pack(fill=tk.X, padx=20, pady=(14, 0))
+        tk.Label(frame, text="\u2500\u2500 CREDITS \u2500" * 4,
+                 font=("Consolas", 9), fg=DARK_THEME["magenta"],
+                 bg=DARK_THEME["bg"]).pack(anchor=tk.W)
+
+        detail = tk.Frame(frame, bg=DARK_THEME["bg"])
+        detail.pack(fill=tk.X, padx=10, pady=(4, 0))
+        tk.Label(detail, text="KC Bowlan", font=("Consolas", 10),
+                 fg=DARK_THEME["fg"], bg=DARK_THEME["bg"]).pack(anchor=tk.W)
+        tk.Label(detail, text="Claude Opus 4.5", font=("Consolas", 10),
+                 fg=DARK_THEME["fg"], bg=DARK_THEME["bg"]).pack(anchor=tk.W)
+
+    def _build_close_button(self):
+        frame = tk.Frame(self.dialog, bg=DARK_THEME["bg"])
+        frame.pack(fill=tk.X, pady=(16, 12))
+        btn = tk.Button(frame, text="CLOSE", command=self.dialog.destroy,
+                        font=("Consolas", 10, "bold"),
+                        bg=DARK_THEME["bg_secondary"], fg=DARK_THEME["cyan"],
+                        activebackground=DARK_THEME["magenta"],
+                        activeforeground=DARK_THEME["fg_highlight"],
+                        bd=1, relief=tk.FLAT, padx=20, pady=4,
+                        cursor="hand2")
+        btn.pack()
+
+
 def signal_existing_instance_to_close():
     """Try to signal any existing instance to close."""
     try:

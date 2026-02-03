@@ -190,6 +190,59 @@ def _strip_subdomains(hostname):
     return ".".join(parts)
 
 
+def publisher_score(source):
+    """Derive a 0-100 publisher reputation score from MBFC data.
+
+    Scoring:
+    - Base from reporting level (very-high=95 down to very-low=10)
+    - Credibility modifier: high=+5, medium=0, low=-10
+    - Questionable flags: -5 each (capped at -20)
+    - Returns None if source is missing or has no reporting data.
+    """
+    if not source:
+        return None
+
+    reporting = (source.get("reporting") or "").lower().strip()
+    if not reporting:
+        return None
+
+    base_scores = {
+        "very-high": 95,
+        "high": 80,
+        "mostly-factual": 65,
+        "mixed": 45,
+        "low": 25,
+        "very-low": 10,
+    }
+    base = base_scores.get(reporting)
+    if base is None:
+        return None
+
+    # Credibility modifier
+    credibility = (source.get("credibility") or "").lower().strip()
+    cred_mod = {"high-credibility": 5, "medium-credibility": 0, "low-credibility": -10}
+    base += cred_mod.get(credibility, 0)
+
+    # Questionable flags penalty
+    flags = source.get("questionable") or []
+    if flags:
+        penalty = min(len(flags) * 5, 20)
+        base -= penalty
+
+    return max(0, min(100, base))
+
+
+def composite_score(article_score, source=None):
+    """Blend publisher reputation (40%) with per-article analysis (60%).
+
+    Returns article_score unchanged when no MBFC publisher score is available.
+    """
+    pub = publisher_score(source)
+    if pub is None:
+        return article_score
+    return round(0.4 * pub + 0.6 * article_score)
+
+
 def _resolve_alias(domain):
     """Resolve domain through alias map."""
     return _aliases.get(domain, domain)

@@ -695,6 +695,9 @@ class NewsAggregatorApp:
                             summary=article.get("summary", ""),
                             factual_rating=article.get("factual", "")
                         )
+                        # Blend with MBFC publisher reputation (40/60)
+                        article["noise_score"] = mbfc.composite_score(
+                            article["noise_score"], article.get("mbfc"))
                         if self.storage.add_article(
                             feed_id=article["feed_id"],
                             title=article["title"],
@@ -805,6 +808,9 @@ class NewsAggregatorApp:
                         summary=article.get("summary", ""),
                         factual_rating=article.get("factual", "")
                     )
+                    # Blend with MBFC publisher reputation (40/60)
+                    article["noise_score"] = mbfc.composite_score(
+                        article["noise_score"], article.get("mbfc"))
                     if self.storage.add_article(
                         feed_id=article["feed_id"],
                         title=article["title"],

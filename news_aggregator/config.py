@@ -262,6 +262,14 @@ ARTICLE_GRADES = [
     (100, "A", "Solid", "#27ae60"),       # Dark green
 ]
 
+
+def get_grade(score):
+    """Return (letter, label, color) for a score 0-100."""
+    for max_score, letter, label, color in ARTICLE_GRADES:
+        if score <= max_score:
+            return letter, label, color
+    return "A", "Solid", "#27ae60"
+
 # Application settings
 DEFAULT_SETTINGS = {
     "min_score_threshold": 70,  # Hide articles with objectivity score below this

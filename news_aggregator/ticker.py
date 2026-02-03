@@ -99,6 +99,10 @@ def update_ticker(app):
 
     start_ticker_animation(app)
 
+    # Draw phosphor edge glow on top of new ticker content
+    import animations
+    animations.draw_ticker_phosphor(app)
+
 
 def ticker_step(app):
     """Move ticker items left by speed pixels. Called by master animation loop."""

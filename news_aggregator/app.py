@@ -28,7 +28,7 @@ from PIL import Image, ImageDraw, ImageTk
 from storage import Storage
 from feeds import FeedManager
 from filters import FilterEngine
-from config import BIAS_COLORS, FACTUAL_COLORS, DARK_THEME
+from config import BIAS_COLORS, FACTUAL_COLORS, DARK_THEME, get_grade
 from constants import IDLE_MESSAGES, BIAS_POSITIONS, TRENDING_STOP_WORDS, FLAP_CHARS
 
 # Extracted modules
@@ -179,7 +179,7 @@ class NewsAggregatorApp:
         self._phosphor_items = []
 
         # Idle status cycling (cyberpunk terminal messages)
-        self._idle_messages = IDLE_MESSAGES
+        self._idle_messages = random.sample(IDLE_MESSAGES, len(IDLE_MESSAGES))
         self._idle_active = True
         self._idle_message_index = 0
         self._idle_char_pos = 0
@@ -381,6 +381,9 @@ class NewsAggregatorApp:
         self.preview_text.delete("1.0", tk.END)
         self.preview_text.configure(state=tk.DISABLED)
         animations.start_typewriter(self, summary, article["id"])
+
+        # Show score breakdown in status bar
+        self._show_score_status(article)
 
     # ── Feed operations ──────────────────────────────────────────
 
@@ -639,6 +642,8 @@ class NewsAggregatorApp:
             except:
                 pass
         noise = article.get("noise_score", 0)
+        letter, label, color = get_grade(noise)
+        noise_display = f"{noise} {label}"
 
         tags = []
         if article.get("is_favorite"):
@@ -646,7 +651,7 @@ class NewsAggregatorApp:
         tags.append("read" if article.get("is_read", False) else "unread")
 
         self.articles_tree.insert("", tk.END, iid=str(article["id"]),
-                                  values=(fav, title, source, bias, date, noise),
+                                  values=(fav, title, source, bias, date, noise_display),
                                   tags=tuple(tags))
 
     # ── Fetch operations ─────────────────────────────────────────
@@ -1316,19 +1321,54 @@ class NewsAggregatorApp:
         return "break"
 
     def _on_article_click(self, event):
-        """Handle click on articles tree — detect fav column click."""
+        """Handle click on articles tree — detect fav or score column click."""
         region = self.articles_tree.identify_region(event.x, event.y)
         if region != "cell":
             return
         col = self.articles_tree.identify_column(event.x)
-        if col != "#1":  # fav is the first column
-            return
         item = self.articles_tree.identify_row(event.y)
         if not item:
             return
         article_id = int(item)
-        self._toggle_favorite(article_id)
-        return "break"
+        if col == "#1":  # fav column
+            self._toggle_favorite(article_id)
+            return "break"
+        if col == "#6":  # score column
+            self._on_score_click(article_id)
+            return "break"
+
+    def _on_score_click(self, article_id: int):
+        """Show score breakdown in status bar when score cell is clicked."""
+        article = self.storage.get_article(article_id)
+        if not article:
+            return
+        self._score_click_article_id = article_id
+        self._show_score_status(article)
+
+    def _show_score_status(self, article: dict):
+        """Display score breakdown in status bar for an article."""
+        noise = article.get("noise_score", 0)
+        letter, label, color = get_grade(noise)
+        mbfc_source = mbfc.lookup_source(article.get("link", ""))
+        if mbfc_source:
+            pub_score = mbfc.publisher_score(mbfc_source)
+            if pub_score is not None:
+                wrfdr_contrib = 0.6 * round((noise - 0.4 * pub_score) / 0.6)
+                mbfc_contrib = 0.4 * pub_score
+                total = wrfdr_contrib + mbfc_contrib
+                if total > 0:
+                    wrfdr_pct = round(wrfdr_contrib / total * 100)
+                    mbfc_pct = 100 - wrfdr_pct
+                else:
+                    wrfdr_pct, mbfc_pct = 60, 40
+                self._update_status(
+                    f"SCORE {noise} {label.upper()} \u2014 "
+                    f"WRFDR: {wrfdr_pct}%, MBFC: {mbfc_pct}%"
+                )
+                return
+        self._update_status(
+            f"SCORE {noise} {label.upper()} \u2014 WRFDR: 100%"
+        )
 
     def _on_key_toggle_favorite(self, event):
         """Handle F key - toggle favorite on selected article."""

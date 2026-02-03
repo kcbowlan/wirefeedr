@@ -370,7 +370,11 @@ def build_ticker(app):
 def build_main_layout(app):
     """Build the main paned layout."""
     # Main paned window
-    app.main_paned = ttk.PanedWindow(app.root, orient=tk.HORIZONTAL)
+    app.main_paned = tk.PanedWindow(
+        app.root, orient=tk.HORIZONTAL, sashwidth=4,
+        bg=DARK_THEME["bg"], bd=0, relief=tk.FLAT,
+        showhandle=False, opaqueresize=True
+    )
     app.main_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
     # Left panel - Feed list
@@ -378,6 +382,18 @@ def build_main_layout(app):
 
     # Right panel - Articles and preview
     build_articles_panel(app)
+
+    # Set preview pane to 45% of vertical space after window is fully laid out
+    def _set_initial_sash():
+        try:
+            app.right_paned.update_idletasks()
+            h = app.right_paned.winfo_height()
+            if h > 50:
+                app.right_paned.sashpos(0, int(h * 0.55))
+        except Exception:
+            pass
+
+    app.root.after(200, _set_initial_sash)
 
 
 def build_feeds_panel(app):
@@ -392,7 +408,7 @@ def build_feeds_panel(app):
         padx=5, pady=5
     )
     feeds_frame = app.feeds_frame
-    app.main_paned.add(feeds_frame, weight=1)
+    app.main_paned.add(feeds_frame, minsize=280, sticky="nsew")
 
     # Gradient header bar
     app._feeds_header = tk.Canvas(feeds_frame, height=20, highlightthickness=0,
@@ -536,7 +552,7 @@ def build_articles_panel(app):
     """Build the articles and preview panel."""
     app.right_paned = ttk.PanedWindow(app.main_paned, orient=tk.VERTICAL)
     right_paned = app.right_paned
-    app.main_paned.add(right_paned, weight=4)
+    app.main_paned.add(right_paned, sticky="nsew")
 
     # Articles list
     app.articles_frame = tk.LabelFrame(
@@ -549,7 +565,7 @@ def build_articles_panel(app):
         padx=5, pady=5
     )
     articles_frame = app.articles_frame
-    right_paned.add(articles_frame, weight=2)
+    right_paned.add(articles_frame, weight=55)
 
     # Gradient header bar
     app._articles_header = tk.Canvas(articles_frame, height=20, highlightthickness=0,
@@ -616,7 +632,7 @@ def build_articles_panel(app):
     # Articles treeview with columns
     columns = ("fav", "title", "source", "bias", "date", "noise")
     app.articles_tree = ttk.Treeview(articles_frame, columns=columns, show="headings",
-                                      selectmode="browse")
+                                      selectmode="browse", height=10)
 
     app.articles_tree.heading("fav", text="\u25c6", anchor=tk.CENTER)
     app.articles_tree.heading("title", text="Title", anchor=tk.W)
@@ -630,7 +646,7 @@ def build_articles_panel(app):
     app.articles_tree.column("source", width=120, minwidth=80)
     app.articles_tree.column("bias", width=90, minwidth=60)
     app.articles_tree.column("date", width=120, minwidth=80)
-    app.articles_tree.column("noise", width=60, minwidth=40)
+    app.articles_tree.column("noise", width=100, minwidth=80)
 
     app.articles_tree.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
 
@@ -669,7 +685,7 @@ def build_articles_panel(app):
         padx=5, pady=5
     )
     preview_frame = app.preview_frame
-    right_paned.add(preview_frame, weight=2)
+    right_paned.add(preview_frame, weight=45)
 
     # Gradient header bar (magenta-tinted for preview)
     app._preview_header = tk.Canvas(preview_frame, height=20, highlightthickness=0,

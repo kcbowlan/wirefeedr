@@ -265,9 +265,12 @@ class FilterKeywordsDialog:
 class CredibilityDetailDialog:
     """Modal dialog showing full score breakdown for an article."""
 
-    def __init__(self, parent, article: dict, mbfc_source: dict | None):
+    def __init__(self, parent, article: dict, mbfc_source: dict | None,
+                 storage=None, cleaned_author: str = None):
         self.article = article
         self.mbfc_source = mbfc_source
+        self.storage = storage
+        self.cleaned_author = cleaned_author
 
         composite = article.get("noise_score", 0)
         letter, label, color = get_grade(composite)
@@ -279,9 +282,18 @@ class CredibilityDetailDialog:
         else:
             article_score = composite
 
+        # Fetch trend data (if storage is available)
+        domain = article.get("publisher_domain", "")
+        self.publisher_data = storage.get_publisher_trend_data(domain) if storage and domain else None
+        self.author_data = (
+            storage.get_author_trend_data(cleaned_author)
+            if storage and cleaned_author else None
+        )
+        self.anomaly = Storage.is_anomaly(composite, self.publisher_data)
+
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Credibility Analysis")
-        self.dialog.geometry("480x520")
+        self.dialog.geometry("480x680")
         self.dialog.resizable(False, False)
         self.dialog.transient(parent)
         self.dialog.grab_set()
@@ -294,6 +306,7 @@ class CredibilityDetailDialog:
         self._build_breakdown_bar(article_score, pub_score)
         self._build_wrfdr_section(article_score)
         self._build_mbfc_section()
+        self._build_trends_section()
         self._build_close_button()
 
         self.dialog.wait_window()
@@ -457,6 +470,125 @@ class CredibilityDetailDialog:
                             fg=DARK_THEME["cyan"], bg=DARK_THEME["bg"], cursor="hand2")
             link.pack(anchor=tk.W, pady=(6, 0))
             link.bind("<Button-1>", lambda e: webbrowser.open(url))
+
+    def _build_trends_section(self):
+        """Publisher rolling average, author average, anomaly flag, sparkline."""
+        frame = tk.Frame(self.dialog, bg=DARK_THEME["bg"])
+        frame.pack(fill=tk.X, padx=20, pady=(10, 0))
+
+        tk.Label(frame, text="\u2500\u2500 TRENDS & ROLLING AVERAGES \u2500" * 2,
+                 font=("Consolas", 9), fg=DARK_THEME["neon_green"],
+                 bg=DARK_THEME["bg"]).pack(anchor=tk.W)
+
+        detail = tk.Frame(frame, bg=DARK_THEME["bg"])
+        detail.pack(fill=tk.X, padx=10, pady=(4, 0))
+
+        # Publisher average
+        pub = self.publisher_data
+        if pub:
+            _, plbl, pclr = get_grade(int(pub["avg_score"]))
+            pub_text = f"{pub['avg_score']:.0f} ({plbl}) [{pub['count']} articles, 90d]"
+            pub_color = pclr
+        else:
+            # Show insufficient-data message with count if we have storage + domain
+            domain = self.article.get("publisher_domain", "")
+            if self.storage and domain:
+                cursor = self.storage.conn.cursor()
+                cursor.execute(
+                    "SELECT COUNT(*) FROM articles WHERE publisher_domain = ?",
+                    (domain,),
+                )
+                n = cursor.fetchone()[0]
+            else:
+                n = 0
+            pub_text = f"Insufficient data ({n}/10 articles)"
+            pub_color = DARK_THEME["fg_secondary"]
+
+        row = tk.Frame(detail, bg=DARK_THEME["bg"])
+        row.pack(fill=tk.X, pady=1)
+        tk.Label(row, text="Publisher avg:", font=("Consolas", 10),
+                 fg=DARK_THEME["fg_secondary"], bg=DARK_THEME["bg"],
+                 width=14, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(row, text=pub_text, font=("Consolas", 10),
+                 fg=pub_color, bg=DARK_THEME["bg"],
+                 anchor=tk.W).pack(side=tk.LEFT)
+
+        # Author average (only if a cleaned author name was supplied)
+        author_data = self.author_data
+        if self.cleaned_author:
+            row = tk.Frame(detail, bg=DARK_THEME["bg"])
+            row.pack(fill=tk.X, pady=1)
+            tk.Label(row, text="Author avg:", font=("Consolas", 10),
+                     fg=DARK_THEME["fg_secondary"], bg=DARK_THEME["bg"],
+                     width=14, anchor=tk.W).pack(side=tk.LEFT)
+            if author_data:
+                _, albl, aclr = get_grade(int(author_data["avg_score"]))
+                a_text = f"{author_data['avg_score']:.0f} ({albl}) [{author_data['count']} articles]"
+                a_color = aclr
+            else:
+                a_text = "Insufficient data"
+                a_color = DARK_THEME["fg_secondary"]
+            tk.Label(row, text=a_text, font=("Consolas", 10),
+                     fg=a_color, bg=DARK_THEME["bg"],
+                     anchor=tk.W).pack(side=tk.LEFT)
+
+        # Anomaly warning
+        if self.anomaly:
+            tk.Label(detail,
+                     text="\u26a0 ANOMALY \u2014 this article scores significantly below publisher average",
+                     font=("Consolas", 9, "bold"), fg=DARK_THEME["neon_red"],
+                     bg=DARK_THEME["bg"], wraplength=420,
+                     justify=tk.LEFT).pack(anchor=tk.W, pady=(4, 0))
+
+        # Sparkline
+        if pub and pub.get("recent_scores"):
+            self._build_sparkline(detail, pub["recent_scores"], pub["avg_score"])
+
+    @staticmethod
+    def _score_to_y(score, height, margin=4):
+        """Map a 0-100 score to a Y pixel coordinate (0=bottom, 100=top)."""
+        usable = height - 2 * margin
+        return margin + usable * (1 - score / 100)
+
+    def _build_sparkline(self, parent, scores, avg):
+        """200x36 Canvas mini line chart of recent scores."""
+        canvas = tk.Canvas(parent, width=200, height=36, highlightthickness=0,
+                           bg=DARK_THEME["bg_secondary"])
+        canvas.pack(anchor=tk.W, pady=(6, 0))
+
+        if not scores:
+            return
+
+        w, h, margin = 200, 36, 4
+
+        # Dashed reference line at publisher average
+        avg_y = self._score_to_y(avg, h, margin)
+        canvas.create_line(0, avg_y, w, avg_y, fill=DARK_THEME["cyan_dim"],
+                           dash=(4, 4))
+
+        # Plot points (oldest on left → reverse the list which is newest-first)
+        pts = list(reversed(scores))
+        n = len(pts)
+        if n < 2:
+            return
+
+        step = (w - 2 * margin) / max(n - 1, 1)
+
+        for i in range(n - 1):
+            x1 = margin + i * step
+            y1 = self._score_to_y(pts[i], h, margin)
+            x2 = margin + (i + 1) * step
+            y2 = self._score_to_y(pts[i + 1], h, margin)
+            _, _, clr = get_grade(pts[i])
+            canvas.create_line(x1, y1, x2, y2, fill=clr, width=1)
+
+        # Dots at each point
+        r = 2
+        for i, s in enumerate(pts):
+            x = margin + i * step
+            y = self._score_to_y(s, h, margin)
+            _, _, clr = get_grade(s)
+            canvas.create_oval(x - r, y - r, x + r, y + r, fill=clr, outline="")
 
     def _build_close_button(self):
         """Close button at the bottom."""

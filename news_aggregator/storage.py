@@ -1,6 +1,7 @@
 # storage.py - SQLite database operations
 
 import sqlite3
+import math
 import os
 from datetime import datetime, timedelta
 from typing import Optional
@@ -90,6 +91,7 @@ class Storage:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_noise_score ON articles(noise_score)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_is_read ON articles(is_read)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_publisher_domain ON articles(publisher_domain)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_author ON articles(author)")
 
         self.conn.commit()
 
@@ -528,6 +530,73 @@ class Storage:
             (category, feed_id)
         )
         self.conn.commit()
+
+    # Trend / rolling-average queries
+
+    def get_publisher_trend_data(self, domain: str, days: int = 90) -> Optional[dict]:
+        """Return {avg_score, std_dev, count, recent_scores} for a publisher domain.
+
+        Returns None if fewer than 10 articles exist in the window.
+        """
+        if not domain:
+            return None
+        cursor = self.conn.cursor()
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+
+        # Aggregate stats
+        cursor.execute(
+            "SELECT AVG(noise_score), COUNT(*), AVG(noise_score * noise_score) "
+            "FROM articles WHERE publisher_domain = ? AND published >= ?",
+            (domain, cutoff),
+        )
+        row = cursor.fetchone()
+        avg, count, avg_sq = row[0], row[1], row[2]
+        if count < 10 or avg is None:
+            return None
+
+        variance = max(avg_sq - avg * avg, 0)
+        std_dev = math.sqrt(variance)
+
+        # Recent scores for sparkline (newest first)
+        cursor.execute(
+            "SELECT noise_score FROM articles "
+            "WHERE publisher_domain = ? AND published >= ? "
+            "ORDER BY published DESC LIMIT 20",
+            (domain, cutoff),
+        )
+        recent_scores = [r[0] for r in cursor.fetchall()]
+
+        return {
+            "avg_score": round(avg, 1),
+            "std_dev": round(std_dev, 1),
+            "count": count,
+            "recent_scores": recent_scores,
+        }
+
+    def get_author_trend_data(self, author: str) -> Optional[dict]:
+        """Return {avg_score, count} for an author (loose LIKE match).
+
+        Returns None if fewer than 10 articles match.
+        """
+        if not author:
+            return None
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT AVG(noise_score), COUNT(*) FROM articles WHERE author LIKE ?",
+            (f"%{author}%",),
+        )
+        row = cursor.fetchone()
+        avg, count = row[0], row[1]
+        if count < 10 or avg is None:
+            return None
+        return {"avg_score": round(avg, 1), "count": count}
+
+    @staticmethod
+    def is_anomaly(score: float, publisher_data: dict) -> bool:
+        """True when score is more than 1.5 std-dev below the publisher mean."""
+        if not publisher_data:
+            return False
+        return score < publisher_data["avg_score"] - 1.5 * publisher_data["std_dev"]
 
     def close(self):
         """Close the database connection."""

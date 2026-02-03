@@ -1377,13 +1377,22 @@ class NewsAggregatorApp:
         self._score_click_article_id = article_id
         self._show_score_status(article)
         mbfc_source = mbfc.lookup_source(article.get("link", ""))
-        CredibilityDetailDialog(self.root, article, mbfc_source)
+        cleaned_author = self._clean_author_name(article.get("author", ""))
+        CredibilityDetailDialog(self.root, article, mbfc_source,
+                                storage=self.storage,
+                                cleaned_author=cleaned_author)
 
     def _show_score_status(self, article: dict):
         """Display score breakdown in status bar for an article."""
         noise = article.get("noise_score", 0)
         letter, label, color = get_grade(noise)
         mbfc_source = mbfc.lookup_source(article.get("link", ""))
+
+        # Check for anomaly
+        domain = article.get("publisher_domain", "")
+        pub_trend = self.storage.get_publisher_trend_data(domain) if domain else None
+        anomaly_suffix = " \u26a0 ANOMALY" if Storage.is_anomaly(noise, pub_trend) else ""
+
         if mbfc_source:
             pub_score = mbfc.publisher_score(mbfc_source)
             if pub_score is not None:
@@ -1397,11 +1406,11 @@ class NewsAggregatorApp:
                     wrfdr_pct, mbfc_pct = 60, 40
                 self._update_status(
                     f"SCORE {noise} {label.upper()} \u2014 "
-                    f"WRFDR: {wrfdr_pct}%, MBFC: {mbfc_pct}%"
+                    f"WRFDR: {wrfdr_pct}%, MBFC: {mbfc_pct}%{anomaly_suffix}"
                 )
                 return
         self._update_status(
-            f"SCORE {noise} {label.upper()} \u2014 WRFDR: 100%"
+            f"SCORE {noise} {label.upper()} \u2014 WRFDR: 100%{anomaly_suffix}"
         )
 
     def _on_key_toggle_favorite(self, event):

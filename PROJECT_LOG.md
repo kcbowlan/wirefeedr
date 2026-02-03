@@ -828,7 +828,7 @@ First SIGNAL infrastructure step: pull publisher credibility data from Media Bia
 - [x] **Add score to article feed UI** - Single clickable score per article, cyberpunk aesthetic; optional confidence indicator when MBFC data unavailable
 - [x] **Build credibility detail panel** - Click score to expand: article-level (objectivity, sensationalism, opinion flags) + publisher-level (bias position, factual level, credibility rating)
 - [x] **Add per-article credibility logging** - Store publisher, author, date, scores, flags in SQLite for historical accumulation
-- [ ] **Implement rolling averages and trends** - 90-day publisher rolling average, per-author average, anomaly flag for outlier articles; minimum 10 articles before showing trends
+- [x] **Implement rolling averages and trends** - 90-day publisher rolling average, per-author average, anomaly flag for outlier articles; minimum 10 articles before showing trends
 - [ ] **Add About section** - "Facts over noise" copy, Patreon link, GitHub Issues link, credits (v2.1, KC Bowlan + Claude Opus 4.5)
 
 **SIGNAL Infrastructure:**

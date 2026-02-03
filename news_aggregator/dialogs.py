@@ -761,7 +761,7 @@ class AboutDialog:
     def _build_version(self):
         frame = tk.Frame(self.dialog, bg=DARK_THEME["bg"])
         frame.pack(fill=tk.X, padx=20, pady=(12, 0))
-        tk.Label(frame, text="v2.1", font=("Consolas", 14, "bold"),
+        tk.Label(frame, text="v2.4", font=("Consolas", 14, "bold"),
                  fg=DARK_THEME["cyan"], bg=DARK_THEME["bg"]).pack()
         tk.Label(frame, text="Facts over noise.", font=("Consolas", 10),
                  fg=DARK_THEME["fg_secondary"], bg=DARK_THEME["bg"]).pack(pady=(2, 0))

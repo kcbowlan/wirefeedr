@@ -718,7 +718,7 @@ def play_boot_sequence(app):
     tk.Misc.lift(app._boot_overlay)
 
     app._boot_lines = [
-        "WIREFEEDR v2.0",
+        "WIREFEEDR v2.4",
         "INITIALIZING NEURAL FEED PARSER",
         "CONNECTING TO NEWS GRID",
         "BIAS DETECTION MATRIX: ONLINE",

@@ -470,7 +470,7 @@ def build_feeds_panel(app):
     )
 
     tk.Label(
-        branding_frame, text="v2.1",
+        branding_frame, text="v2.4",
         bg=DARK_THEME["bg"], fg=DARK_THEME["fg_secondary"],
         font=("Consolas", 9)
     ).pack(side=tk.LEFT, padx=(4, 0), pady=(8, 0))

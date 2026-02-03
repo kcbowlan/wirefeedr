@@ -4,7 +4,7 @@
 Create a desktop news aggregator that delivers factual news via RSS feeds while filtering out sensationalism, opinion pieces, and propaganda.
 
 **Last Updated:** 2026-02-03
-**Status:** v2.3 - SIGNAL Step 1 (MBFC Data Integration)
+**Status:** v2.4 - SIGNAL Step 1 (MBFC Data Integration)
 
 ---
 

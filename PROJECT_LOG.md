@@ -3,7 +3,7 @@
 ## Project Goal
 Create a desktop news aggregator that delivers factual news via RSS feeds while filtering out sensationalism, opinion pieces, and propaganda.
 
-**Last Updated:** 2026-02-02
+**Last Updated:** 2026-02-03
 **Status:** v2.3 - SIGNAL Step 1 (MBFC Data Integration)
 
 ---
@@ -793,6 +793,22 @@ First SIGNAL infrastructure step: pull publisher credibility data from Media Bia
 | PBS NewsHour | pbs.org | left-center | high |
 | Wall Street Journal | wsj.com | right-center | mostly-factual |
 | The Economist | economist.com | center | high |
+
+### Session 21 - 2026-02-03: About Dialog & Interactive Sparkline
+
+**About dialog (`dialogs.py`):**
+- New `AboutDialog` class matching CredibilityDetailDialog cyberpunk aesthetic
+- Gradient header, version (v2.1), tagline ("Facts over noise."), app description
+- Clickable links: GitHub Issues, Patreon support
+- Credits: KC Bowlan, Claude Opus 4.5
+- Menu item added to Settings between Filter Keywords and Exit
+
+**Sparkline enhancements (`dialogs.py`, `storage.py`):**
+- Canvas expanded from 200x36 to full-width 440x98 with thicker lines (2px) and larger dots (r=4)
+- Auto-scaled Y-axis: maps to actual data range instead of fixed 0-100, making dips and peaks fill the chart
+- Labeled axes: Y-axis shows score range, X-axis shows OLDER/NEWER, header shows "CREDIBILITY TREND: domain"
+- Interactive dots: hover shows tooltip with article title, composite score, WRFDR/MBFC breakdown and blend formula; click opens article in browser
+- New `recent_articles` field in `get_publisher_trend_data()` returns title, link, and score components for each sparkline point
 
 ---
 

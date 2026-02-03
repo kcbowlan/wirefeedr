@@ -2,6 +2,7 @@
 
 import tkinter as tk
 from tkinter import ttk
+import tkinter.font as tkfont
 import os
 import webbrowser
 
@@ -204,6 +205,7 @@ def bind_shortcuts(app):
     app.root.bind("H", app._on_key_hide)
     app.root.bind("f", app._on_key_toggle_favorite)
     app.root.bind("F", app._on_key_toggle_favorite)
+    app.root.bind("<KeyPress>", lambda e: animations.konami_check(app, e))
 
 
 def build_toolbar(app):
@@ -419,13 +421,35 @@ def build_feeds_panel(app):
     except Exception:
         pass
 
-    # Large WIREFEEDR text to span panel
-    app.title_label = tk.Label(
-        branding_frame, text="WIREFEEDR",
-        bg=DARK_THEME["bg"], fg=DARK_THEME["cyan"],
-        font=("Consolas", 16, "bold")
+    # Large WIREFEEDR text with chromatic aberration (canvas-based 3-layer text)
+    title_font = ("Consolas", 16, "bold")
+    fobj = tkfont.Font(family="Consolas", size=16, weight="bold")
+    tw = fobj.measure("WIREFEEDR")
+    th = fobj.metrics("linespace")
+    cw = tw + 8
+    ch = th + 4
+    app._title_canvas = tk.Canvas(
+        branding_frame, width=cw, height=ch,
+        bg=DARK_THEME["bg"], highlightthickness=0
     )
-    app.title_label.pack(side=tk.LEFT)
+    app._title_canvas.pack(side=tk.LEFT)
+    cx = cw // 2
+    cy = ch // 2
+    # Red/magenta shadow — offset left 2px (drawn first = lowest layer)
+    app._title_ab_red = app._title_canvas.create_text(
+        cx - 2, cy, text="WIREFEEDR",
+        fill=DARK_THEME["magenta_dim"], font=title_font, anchor=tk.CENTER
+    )
+    # Cyan shadow — offset right 2px
+    app._title_ab_cyan = app._title_canvas.create_text(
+        cx + 2, cy, text="WIREFEEDR",
+        fill=DARK_THEME["cyan_dim"], font=title_font, anchor=tk.CENTER
+    )
+    # Main text on top (drawn last = topmost layer)
+    app._title_main = app._title_canvas.create_text(
+        cx, cy, text="WIREFEEDR",
+        fill=DARK_THEME["cyan"], font=title_font, anchor=tk.CENTER
+    )
 
     tk.Label(
         branding_frame, text="v2.1",
@@ -722,6 +746,10 @@ def build_articles_panel(app):
 
     preview_text_scroll.configure(command=app.preview_text.yview)
 
+    # Rain canvas (overlays preview_text for matrix rain placeholder)
+    app._rain_canvas = tk.Canvas(app.preview_frame, bg=DARK_THEME["bg_tertiary"], highlightthickness=0)
+    app._rain_canvas.bind("<Configure>", lambda e: animations.on_rain_configure(app, e))
+
     # Configure semantic highlighting tags
     import highlighting
     highlighting.setup_highlight_tags(app)
@@ -731,38 +759,26 @@ def build_articles_panel(app):
 
 
 def show_preview_placeholder(app):
-    """Display a cyberpunk placeholder when no article is selected."""
+    """Display matrix rain placeholder when no article is selected."""
     app.preview_title.configure(text="")
     app.bias_label.configure(text="", bg=DARK_THEME["bg_tertiary"])
     app.factual_label.configure(text="", bg=DARK_THEME["bg_tertiary"])
     app.preview_meta.configure(text="")
 
-    t = DARK_THEME
+    # Clear the text widget
     pw = app.preview_text
     pw.configure(state=tk.NORMAL)
     pw.delete("1.0", tk.END)
-
-    # Placeholder tags
-    pw.tag_configure("ph_dim", foreground=t["fg_secondary"], justify="center",
-                     font=("Consolas", 9))
-    pw.tag_configure("ph_brand", foreground=t["cyan"], justify="center",
-                     font=("Consolas", 14, "bold"))
-    pw.tag_configure("ph_accent", foreground=t["magenta_dim"], justify="center",
-                     font=("Consolas", 9))
-    pw.tag_configure("ph_key", foreground=t["cyan_dim"], justify="center",
-                     font=("Consolas", 9))
-    pw.tag_configure("ph_box", foreground=t["fg_secondary"], justify="center",
-                     font=("Consolas", 9))
-
-    lines = [
-        ("\n\n\n\n", "ph_dim"),
-        ("SELECT ARTICLE TO VIEW\n", "ph_accent"),
-    ]
-
-    for text, tag in lines:
-        pw.insert(tk.END, text, tag)
-
     pw.configure(state=tk.DISABLED)
+
+    # Place rain canvas over preview_text
+    if app._rain_canvas:
+        app._rain_canvas.delete("all")
+        app._rain_canvas.place(in_=app.preview_text, relx=0, rely=0, relwidth=1, relheight=1)
+        app._rain_active = True
+        app._rain_columns = []
+        # Draw placeholder text on canvas
+        animations._draw_rain_placeholder_text(app)
 
 
 def build_status_bar(app):

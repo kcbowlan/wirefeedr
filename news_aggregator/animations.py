@@ -79,6 +79,10 @@ def anim_tick(app):
     # Static noise bursts
     animate_static_noise(app)
 
+    # Phosphor afterglow (ticker edges) — redraw every 15 frames to stay on top
+    if app._anim_frame % 15 == 0 and app._ticker_running:
+        draw_ticker_phosphor(app)
+
     app._anim_id = app.root.after(33, lambda: anim_tick(app))
 
 
@@ -721,6 +725,7 @@ def play_boot_sequence(app):
         "SIGNAL LOCKED. WELCOME, OPERATOR.",
     ]
     app._boot_step = 0
+
     app.root.after(200, lambda: boot_next_line(app))
 
 
@@ -764,6 +769,7 @@ def boot_fade_out(app):
     """Remove boot overlay and start animations."""
     app._boot_overlay.destroy()
     start_animation_loop(app)
+
 
 
 # -- Gradient buttons ------------------------------------------------------
@@ -1131,6 +1137,162 @@ def _end_static_noise(app):
     app._static_noise_frame = 0
 
 
+# -- Phosphor afterglow (ticker edges) -------------------------------------
+
+_PHOSPHOR_GLOW_WIDTH = 55  # px wide on each edge
+_PHOSPHOR_STEPS = 18       # number of gradient steps per edge
+
+
+def draw_ticker_phosphor(app):
+    """Draw smooth phosphor glow at left/right edges of the ticker canvas."""
+    canvas = app.ticker_canvas
+    if canvas is None:
+        return
+    try:
+        w = canvas.winfo_width()
+        h = canvas.winfo_height()
+    except tk.TclError:
+        return
+    if w < 100 or h < 5:
+        return
+
+    canvas.delete("phosphor_glow")
+
+    bg = DARK_THEME["bg_secondary"]
+    bar_w = max(1, _PHOSPHOR_GLOW_WIDTH // _PHOSPHOR_STEPS)
+    pulse = 0.85 + 0.15 * math.sin(app._anim_frame * 0.04)
+
+    for i in range(_PHOSPHOR_STEPS):
+        t = i / _PHOSPHOR_STEPS  # 0 at edge, 1 at inner
+        # Quadratic falloff for smoother fade
+        intensity = (1.0 - t) ** 2 * 0.65 * pulse
+
+        # Left edge: cyan
+        color_l = lerp_color(bg, DARK_THEME["cyan"], intensity)
+        x = i * bar_w
+        canvas.create_rectangle(
+            x, 0, x + bar_w, h, fill=color_l, outline="", tags="phosphor_glow"
+        )
+
+        # Right edge: magenta
+        color_r = lerp_color(bg, DARK_THEME["magenta"], intensity)
+        x = w - (i + 1) * bar_w
+        canvas.create_rectangle(
+            x, 0, x + bar_w, h, fill=color_r, outline="", tags="phosphor_glow"
+        )
+
+    # Draw glow behind text so ticker items remain visible
+    canvas.tag_lower("phosphor_glow")
+
+
+# -- Konami code easter egg ------------------------------------------------
+
+def konami_check(app, event):
+    """Track key presses and trigger easter egg on Konami code match."""
+    if app._konami_active:
+        return
+    app._konami_seq.append(event.keysym)
+    app._konami_seq = app._konami_seq[-10:]
+    if app._konami_seq == app._konami_code:
+        app._konami_seq = []
+        _konami_trigger(app)
+
+
+def _konami_trigger(app):
+    """Create full-screen overlay with static burst, then type secret message."""
+    app._konami_active = True
+    try:
+        w = app.root.winfo_width()
+        h = app.root.winfo_height()
+    except tk.TclError:
+        app._konami_active = False
+        return
+
+    overlay = tk.Canvas(app.root, bg="#000000", highlightthickness=0)
+    overlay.place(x=0, y=0, width=w, height=h)
+    app._konami_overlay = overlay
+
+    # Brief static noise burst on overlay
+    noise_colors = ["#2a2a3e", "#303048", "#383850", "#252538", "#2e2e44"]
+    accent_colors = [DARK_THEME["cyan_dim"], DARK_THEME["magenta_dim"]]
+    for _ in range(80):
+        size = random.randint(2, 6)
+        x = random.randint(0, w - size)
+        y = random.randint(0, h - size)
+        color = random.choice(accent_colors) if random.random() < 0.10 else random.choice(noise_colors)
+        overlay.create_rectangle(x, y, x + size, y + size, fill=color, outline="")
+
+    app.root.after(200, lambda: _konami_type_message(app))
+
+
+def _konami_type_message(app):
+    """Clear static and begin typing the secret message."""
+    try:
+        overlay = app._konami_overlay
+        overlay.delete("all")
+    except tk.TclError:
+        app._konami_active = False
+        return
+
+    app._konami_lines = ["//ACCESS DENIED\\\\"]
+    app._konami_step = 0
+    _konami_next_line(app)
+
+
+def _konami_next_line(app):
+    """Start typing the next message line character-by-character."""
+    if app._konami_step >= len(app._konami_lines):
+        app.root.after(1500, lambda: _konami_fade_out(app))
+        return
+
+    try:
+        overlay = app._konami_overlay
+        w = overlay.winfo_width()
+        h = overlay.winfo_height()
+    except tk.TclError:
+        app._konami_active = False
+        return
+
+    text = app._konami_lines[app._konami_step]
+    y = h // 2 + app._konami_step * 28
+
+    text_id = overlay.create_text(
+        w // 2, y, text="", fill=DARK_THEME["magenta"], anchor=tk.CENTER,
+        font=("Consolas", 16, "bold")
+    )
+    app._konami_char_pos = 0
+    app._konami_current_text = text
+    app._konami_text_id = text_id
+    _konami_type_char(app)
+
+
+def _konami_type_char(app):
+    """Type one chunk of the current message line."""
+    app._konami_char_pos += 2
+    partial = app._konami_current_text[:app._konami_char_pos]
+    try:
+        app._konami_overlay.itemconfigure(app._konami_text_id, text=partial + "_")
+    except tk.TclError:
+        app._konami_active = False
+        return
+
+    if app._konami_char_pos >= len(app._konami_current_text):
+        app._konami_overlay.itemconfigure(app._konami_text_id, text=app._konami_current_text)
+        app._konami_step += 1
+        app.root.after(60, lambda: _konami_next_line(app))
+    else:
+        app.root.after(15, lambda: _konami_type_char(app))
+
+
+def _konami_fade_out(app):
+    """Destroy overlay and reset state."""
+    try:
+        app._konami_overlay.destroy()
+    except (tk.TclError, AttributeError):
+        pass
+    app._konami_active = False
+
+
 # -- CRT shutdown animation ------------------------------------------------
 
 def play_crt_shutdown(app):
@@ -1175,7 +1337,7 @@ def _crt_shutdown_tick(app):
 
         if phase == 1:
             # Vertical compress: bright bar shrinks to 2px horizontal line
-            total_frames = 15
+            total_frames = 8
             t = min(frame / total_frames, 1.0)
             ease = t * t  # ease-in
             bar_h = max(2, int(h * (1.0 - ease)))
@@ -1204,7 +1366,7 @@ def _crt_shutdown_tick(app):
 
         elif phase == 2:
             # Horizontal compress: line shrinks to dot at center
-            total_frames = 12
+            total_frames = 7
             t = min(frame / total_frames, 1.0)
             ease = t * t
             line_w = max(4, int(w * (1.0 - ease)))
@@ -1232,7 +1394,7 @@ def _crt_shutdown_tick(app):
 
         elif phase == 3:
             # Dot fade: small dot fades from white to black
-            total_frames = 8
+            total_frames = 5
             t = min(frame / total_frames, 1.0)
             dot_size = max(1, int(3 * (1.0 - t)))
             # Chromatic aberration: red dot offset up-left

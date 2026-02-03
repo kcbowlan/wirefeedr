@@ -138,6 +138,44 @@ class NewsAggregatorApp:
         self._typewriter_pending_highlight = False
         self._typewriter_full_text = ""
 
+        # Matrix rain effect (preview placeholder)
+        self._rain_active = False
+        self._rain_canvas = None
+        self._rain_columns = []
+        self._rain_col_width = 14
+        self._rain_row_height = 16
+        self._rain_font = ("Consolas", 11)
+
+        # Static noise bursts
+        self._static_noise_active = False
+        self._static_noise_frame = 0
+        self._static_noise_duration = 0
+        self._static_noise_next = 300
+        self._static_noise_canvases = []
+        self._static_noise_panels = []
+
+        # CRT shutdown
+        self._shutdown_active = False
+        self._shutdown_canvas = None
+        self._shutdown_phase = 0
+        self._shutdown_frame = 0
+
+        # Header glitch effect
+        self._header_glitch_active = False
+        self._header_glitch_frame = 0
+        self._header_glitch_duration = 0
+        self._header_glitch_target = None
+        self._header_glitch_original = ""
+        self._header_glitch_next = 0
+
+        # Konami code easter egg
+        self._konami_seq = []
+        self._konami_code = ["Up", "Up", "Down", "Down", "Left", "Right", "Left", "Right", "b", "a"]
+        self._konami_active = False
+
+        # Phosphor afterglow (ticker edges)
+        self._phosphor_items = []
+
         # Idle status cycling (cyberpunk terminal messages)
         self._idle_messages = IDLE_MESSAGES
         self._idle_active = True
@@ -279,6 +317,12 @@ class NewsAggregatorApp:
 
     def _display_article(self, article):
         """Display an article in the preview panel."""
+        if self._rain_active:
+            self._rain_active = False
+            if self._rain_canvas:
+                self._rain_canvas.delete("all")
+                self._rain_canvas.place_forget()
+
         self.selected_article_id = article["id"]
 
         if not article.get("is_read", False):
@@ -1309,11 +1353,12 @@ class NewsAggregatorApp:
     # ── Window close ────────────────────────────────────────────
 
     def _on_close(self):
-        """Handle window close."""
+        """Handle window close with CRT shutdown animation."""
+        if self._shutdown_active:
+            return
+        self._shutdown_active = True
         animations.stop_animation_loop(self)
-        self.storage.close()
-        self.root.destroy()
-        self._owner.destroy()
+        animations.play_crt_shutdown(self)
 
 
 if __name__ == "__main__":

@@ -566,11 +566,26 @@ class Storage:
         )
         recent_scores = [r[0] for r in cursor.fetchall()]
 
+        # Recent articles with detail for interactive sparkline
+        cursor.execute(
+            "SELECT noise_score, article_score, publisher_score, title, link "
+            "FROM articles "
+            "WHERE publisher_domain = ? AND published >= ? "
+            "ORDER BY published DESC LIMIT 20",
+            (domain, cutoff),
+        )
+        recent_articles = [
+            {"noise_score": r[0], "article_score": r[1],
+             "publisher_score": r[2], "title": r[3], "link": r[4]}
+            for r in cursor.fetchall()
+        ]
+
         return {
             "avg_score": round(avg, 1),
             "std_dev": round(std_dev, 1),
             "count": count,
             "recent_scores": recent_scores,
+            "recent_articles": recent_articles,
         }
 
     def get_author_trend_data(self, author: str) -> Optional[dict]:

@@ -542,53 +542,169 @@ class CredibilityDetailDialog:
 
         # Sparkline
         if pub and pub.get("recent_scores"):
-            self._build_sparkline(detail, pub["recent_scores"], pub["avg_score"])
+            domain = self.article.get("publisher_domain", "")
+            self._build_sparkline(detail, pub["recent_scores"], pub["avg_score"],
+                                  label=domain or "Publisher",
+                                  articles=pub.get("recent_articles"))
 
     @staticmethod
-    def _score_to_y(score, height, margin=4):
-        """Map a 0-100 score to a Y pixel coordinate (0=bottom, 100=top)."""
+    def _score_to_y(score, height, margin=4, lo=0, hi=100):
+        """Map a score to a Y pixel coordinate (lo=bottom, hi=top)."""
         usable = height - 2 * margin
-        return margin + usable * (1 - score / 100)
+        rng = hi - lo if hi != lo else 1
+        return margin + usable * (1 - (score - lo) / rng)
 
-    def _build_sparkline(self, parent, scores, avg):
-        """200x36 Canvas mini line chart of recent scores."""
-        canvas = tk.Canvas(parent, width=200, height=36, highlightthickness=0,
+    def _build_sparkline(self, parent, scores, avg, label="", articles=None):
+        """Full-width canvas line chart of recent scores with labeled axes."""
+        left_margin = 30   # room for Y-axis labels
+        right_margin = 24
+        top_margin = 20    # room for header label
+        bottom_margin = 14  # room for X-axis labels
+        chart_h = 64
+        h = top_margin + chart_h + bottom_margin
+        w = 440
+
+        canvas = tk.Canvas(parent, height=h, highlightthickness=0,
                            bg=DARK_THEME["bg_secondary"])
-        canvas.pack(anchor=tk.W, pady=(6, 0))
+        canvas.pack(fill=tk.X, pady=(6, 0))
 
         if not scores:
             return
 
-        w, h, margin = 200, 36, 4
+        # Header label
+        if label:
+            canvas.create_text(w // 2, 10, text=f"CREDIBILITY TREND: {label.upper()}",
+                               fill=DARK_THEME["cyan"], font=("Consolas", 8, "bold"))
+
+        # Auto-scale Y-axis to data range with padding
+        pts = list(reversed(scores))
+        art_list = list(reversed(articles)) if articles else None
+        all_vals = pts + [avg]
+        lo = max(0, min(all_vals) - 5)
+        hi = min(100, max(all_vals) + 5)
+
+        # Y-axis labels (hi at top, lo at bottom)
+        canvas.create_text(left_margin - 4, top_margin, text=f"{hi:.0f}",
+                           fill=DARK_THEME["fg_secondary"], font=("Consolas", 7),
+                           anchor=tk.NE)
+        canvas.create_text(left_margin - 4, top_margin + chart_h, text=f"{lo:.0f}",
+                           fill=DARK_THEME["fg_secondary"], font=("Consolas", 7),
+                           anchor=tk.SE)
+
+        # X-axis labels (older on left, newer on right)
+        canvas.create_text(left_margin, top_margin + chart_h + 3, text="OLDER",
+                           fill=DARK_THEME["fg_secondary"], font=("Consolas", 7),
+                           anchor=tk.NW)
+        canvas.create_text(w - right_margin, top_margin + chart_h + 3, text="NEWER",
+                           fill=DARK_THEME["fg_secondary"], font=("Consolas", 7),
+                           anchor=tk.NE)
 
         # Dashed reference line at publisher average
-        avg_y = self._score_to_y(avg, h, margin)
-        canvas.create_line(0, avg_y, w, avg_y, fill=DARK_THEME["cyan_dim"],
-                           dash=(4, 4))
+        avg_y = self._score_to_y(avg, chart_h, 0, lo, hi) + top_margin
+        canvas.create_line(left_margin, avg_y, w - right_margin, avg_y,
+                           fill=DARK_THEME["cyan_dim"], dash=(4, 4))
+        canvas.create_text(w - right_margin, avg_y - 8, text=f"avg {avg:.0f}",
+                           fill=DARK_THEME["cyan_dim"], font=("Consolas", 7),
+                           anchor=tk.E)
 
-        # Plot points (oldest on left → reverse the list which is newest-first)
-        pts = list(reversed(scores))
+        # Plot points (oldest on left → reversed list is newest-first)
         n = len(pts)
         if n < 2:
             return
 
-        step = (w - 2 * margin) / max(n - 1, 1)
+        chart_w = w - left_margin - right_margin
+        step = chart_w / max(n - 1, 1)
 
         for i in range(n - 1):
-            x1 = margin + i * step
-            y1 = self._score_to_y(pts[i], h, margin)
-            x2 = margin + (i + 1) * step
-            y2 = self._score_to_y(pts[i + 1], h, margin)
+            x1 = left_margin + i * step
+            y1 = self._score_to_y(pts[i], chart_h, 0, lo, hi) + top_margin
+            x2 = left_margin + (i + 1) * step
+            y2 = self._score_to_y(pts[i + 1], chart_h, 0, lo, hi) + top_margin
             _, _, clr = get_grade(pts[i])
-            canvas.create_line(x1, y1, x2, y2, fill=clr, width=1)
+            canvas.create_line(x1, y1, x2, y2, fill=clr, width=2)
 
-        # Dots at each point
-        r = 2
+        # Dots at each point (interactive if article data available)
+        r = 4
+        dot_hitboxes = []  # (oval_id, index) for hit detection
         for i, s in enumerate(pts):
-            x = margin + i * step
-            y = self._score_to_y(s, h, margin)
+            x = left_margin + i * step
+            y = self._score_to_y(s, chart_h, 0, lo, hi) + top_margin
             _, _, clr = get_grade(s)
-            canvas.create_oval(x - r, y - r, x + r, y + r, fill=clr, outline="")
+            oval = canvas.create_oval(x - r, y - r, x + r, y + r,
+                                      fill=clr, outline="")
+            dot_hitboxes.append((oval, i, x, y))
+
+        if not art_list:
+            return
+
+        # Tooltip window (shared across dots)
+        tooltip = None
+
+        def _show_tooltip(event, idx):
+            nonlocal tooltip
+            _hide_tooltip()
+            if idx >= len(art_list):
+                return
+            art = art_list[idx]
+            title = art.get("title", "")
+            if len(title) > 50:
+                title = title[:47] + "..."
+            lines = [title]
+            composite = art.get("noise_score", 0)
+            _, lbl, _ = get_grade(composite)
+            art_sc = art.get("article_score")
+            pub_sc = art.get("publisher_score")
+            lines.append(f"Composite: {composite} ({lbl})")
+            if art_sc is not None:
+                lines.append(f"  WRFDR article: {art_sc}")
+            if pub_sc is not None:
+                lines.append(f"  MBFC publisher: {pub_sc}")
+            if art_sc is not None and pub_sc is not None:
+                lines.append(f"  Blend: 0.6\u00d7{art_sc} + 0.4\u00d7{pub_sc}")
+
+            tooltip = tk.Toplevel(canvas)
+            tooltip.wm_overrideredirect(True)
+            tooltip.configure(bg=DARK_THEME["cyan_dim"])
+            frame = tk.Frame(tooltip, bg=DARK_THEME["bg"], bd=1)
+            frame.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
+            for line in lines:
+                tk.Label(frame, text=line, font=("Consolas", 8),
+                         fg=DARK_THEME["fg"], bg=DARK_THEME["bg"],
+                         justify=tk.LEFT, anchor=tk.W).pack(anchor=tk.W, padx=4, pady=0)
+            rx = canvas.winfo_rootx() + event.x + 12
+            ry = canvas.winfo_rooty() + event.y - 10
+            tooltip.geometry(f"+{rx}+{ry}")
+
+        def _hide_tooltip(event=None):
+            nonlocal tooltip
+            if tooltip:
+                tooltip.destroy()
+                tooltip = None
+
+        def _on_motion(event):
+            # Find closest dot
+            hit_r = 8
+            for oval, idx, dx, dy in dot_hitboxes:
+                if abs(event.x - dx) <= hit_r and abs(event.y - dy) <= hit_r:
+                    canvas.configure(cursor="hand2")
+                    _show_tooltip(event, idx)
+                    return
+            canvas.configure(cursor="")
+            _hide_tooltip()
+
+        def _on_click(event):
+            hit_r = 8
+            for oval, idx, dx, dy in dot_hitboxes:
+                if abs(event.x - dx) <= hit_r and abs(event.y - dy) <= hit_r:
+                    if idx < len(art_list):
+                        link = art_list[idx].get("link", "")
+                        if link:
+                            webbrowser.open(link)
+                    return
+
+        canvas.bind("<Motion>", _on_motion)
+        canvas.bind("<Button-1>", _on_click)
+        canvas.bind("<Leave>", _hide_tooltip)
 
     def _build_close_button(self):
         """Close button at the bottom."""

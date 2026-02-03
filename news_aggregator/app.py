@@ -38,6 +38,7 @@ import animations
 import ticker
 import highlighting
 from dialogs import AddFeedDialog, ManageFeedsDialog, FilterKeywordsDialog
+import mbfc
 
 
 class NewsAggregatorApp:
@@ -73,6 +74,7 @@ class NewsAggregatorApp:
         self.storage = Storage()
         self.feed_manager = FeedManager()
         self.filter_engine = FilterEngine(self.storage.get_filter_keywords())
+        mbfc.load_mbfc_data()
 
         # State
         self.current_feed_id = None  # None = All feeds
@@ -682,6 +684,10 @@ class NewsAggregatorApp:
                         article["feed_id"] = feed["id"]
                         article["bias"] = feed.get("bias", "")
                         article["factual"] = feed.get("factual", "")
+                        # Attach MBFC data for article's actual publisher
+                        mbfc_source = mbfc.lookup_source(article.get("link", ""))
+                        if mbfc_source:
+                            article["mbfc"] = mbfc_source
                         # Apply noise scoring
                         article["noise_score"] = self.filter_engine.calculate_objectivity_score(
                             title=article.get("title", ""),
@@ -789,6 +795,10 @@ class NewsAggregatorApp:
                     article["feed_id"] = feed_id
                     article["bias"] = feed.get("bias", "")
                     article["factual"] = feed.get("factual", "")
+                    # Attach MBFC data for article's actual publisher
+                    mbfc_source = mbfc.lookup_source(article.get("link", ""))
+                    if mbfc_source:
+                        article["mbfc"] = mbfc_source
                     article["noise_score"] = self.filter_engine.calculate_objectivity_score(
                         title=article.get("title", ""),
                         link=article.get("link", ""),

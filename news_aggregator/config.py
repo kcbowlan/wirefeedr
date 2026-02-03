@@ -118,6 +118,29 @@ DEFAULT_FEEDS = [
     }
 ]
 
+# MBFC bias → Wirefeedr display values
+MBFC_BIAS_MAP = {
+    "left": "Left",
+    "left-center": "Left-Center",
+    "center": "Center",
+    "right-center": "Right-Center",
+    "right": "Right",
+    "pro-science": "Center",
+    "conspiracy-pseudoscience": "Right",
+    "satire": "Center",
+    "fake-news": "Center",
+}
+
+# MBFC reporting → Wirefeedr factual display values
+MBFC_REPORTING_MAP = {
+    "very-high": "Very High",
+    "high": "High",
+    "mostly-factual": "Mostly Factual",
+    "mixed": "Mixed",
+    "low": "Mixed",
+    "very-low": "Mixed",
+}
+
 # Bias display colors (for UI)
 BIAS_COLORS = {
     "Center": "#27ae60",        # Green

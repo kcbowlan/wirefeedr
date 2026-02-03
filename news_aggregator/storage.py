@@ -89,6 +89,7 @@ class Storage:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(published DESC)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_noise_score ON articles(noise_score)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_is_read ON articles(is_read)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_publisher_domain ON articles(publisher_domain)")
 
         self.conn.commit()
 
@@ -105,6 +106,19 @@ class Storage:
 
         if "is_favorite" not in existing_columns:
             cursor.execute("ALTER TABLE articles ADD COLUMN is_favorite INTEGER DEFAULT 0")
+
+        # Per-article credibility logging columns
+        for col, typedef in [
+            ("publisher_domain", "TEXT"),
+            ("article_score", "INTEGER"),
+            ("publisher_score", "INTEGER"),
+            ("mbfc_bias", "TEXT"),
+            ("mbfc_reporting", "TEXT"),
+            ("mbfc_credibility", "TEXT"),
+            ("mbfc_flags", "TEXT"),
+        ]:
+            if col not in existing_columns:
+                cursor.execute(f"ALTER TABLE articles ADD COLUMN {col} {typedef}")
 
     def _migrate_feeds_table(self, cursor):
         """Add new columns to existing feeds table if they don't exist."""
@@ -249,22 +263,33 @@ class Storage:
 
     # Article operations
     def add_article(self, feed_id: int, title: str, link: str, summary: str = "",
-                    published: str = None, author: str = "", noise_score: int = 0) -> Optional[int]:
+                    published: str = None, author: str = "", noise_score: int = 0,
+                    publisher_domain: str = None, article_score: int = None,
+                    publisher_score: int = None, mbfc_bias: str = None,
+                    mbfc_reporting: str = None, mbfc_credibility: str = None,
+                    mbfc_flags: str = None) -> Optional[int]:
         """Add an article. Returns article ID or None if already exists."""
         try:
             cursor = self.conn.cursor()
             cursor.execute("""
-                INSERT INTO articles (feed_id, title, link, summary, published, author, noise_score)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (feed_id, title, link, summary, published, author, noise_score))
+                INSERT INTO articles (feed_id, title, link, summary, published, author, noise_score,
+                    publisher_domain, article_score, publisher_score,
+                    mbfc_bias, mbfc_reporting, mbfc_credibility, mbfc_flags)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (feed_id, title, link, summary, published, author, noise_score,
+                  publisher_domain, article_score, publisher_score,
+                  mbfc_bias, mbfc_reporting, mbfc_credibility, mbfc_flags))
             self.conn.commit()
             return cursor.lastrowid
         except sqlite3.IntegrityError:
-            # Article already exists, update noise score
-            cursor.execute(
-                "UPDATE articles SET noise_score = ? WHERE link = ?",
-                (noise_score, link)
-            )
+            # Article already exists, update scores and credibility data
+            cursor.execute("""
+                UPDATE articles SET noise_score = ?, publisher_domain = ?,
+                    article_score = ?, publisher_score = ?,
+                    mbfc_bias = ?, mbfc_reporting = ?, mbfc_credibility = ?, mbfc_flags = ?
+                WHERE link = ?
+            """, (noise_score, publisher_domain, article_score, publisher_score,
+                  mbfc_bias, mbfc_reporting, mbfc_credibility, mbfc_flags, link))
             self.conn.commit()
             return None
 

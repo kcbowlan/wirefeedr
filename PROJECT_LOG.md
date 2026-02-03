@@ -824,10 +824,10 @@ First SIGNAL infrastructure step: pull publisher credibility data from Media Bia
 - [x] **Build domain normalization** - Handles subdomains, Google News proxy URLs, alias resolution
 - [x] **Create local MBFC JSON lookup** - `data/mbfc_sources.json` re-indexed by domain; no runtime internet dependency
 - [x] **Match MBFC against current feeds** - 8/8 default feeds matched
-- [ ] **Build composite scoring (40/60 blend)** - 40% MBFC publisher baseline + 60% Wirefeedr per-article analysis; fall back to 100% Wirefeedr when no MBFC data
-- [ ] **Add score to article feed UI** - Single clickable score per article, cyberpunk aesthetic; optional confidence indicator when MBFC data unavailable
-- [ ] **Build credibility detail panel** - Click score to expand: article-level (objectivity, sensationalism, opinion flags) + publisher-level (bias position, factual level, credibility rating)
-- [ ] **Add per-article credibility logging** - Store publisher, author, date, scores, flags in SQLite for historical accumulation
+- [x] **Build composite scoring (40/60 blend)** - 40% MBFC publisher baseline + 60% Wirefeedr per-article analysis; fall back to 100% Wirefeedr when no MBFC data
+- [x] **Add score to article feed UI** - Single clickable score per article, cyberpunk aesthetic; optional confidence indicator when MBFC data unavailable
+- [x] **Build credibility detail panel** - Click score to expand: article-level (objectivity, sensationalism, opinion flags) + publisher-level (bias position, factual level, credibility rating)
+- [x] **Add per-article credibility logging** - Store publisher, author, date, scores, flags in SQLite for historical accumulation
 - [ ] **Implement rolling averages and trends** - 90-day publisher rolling average, per-author average, anomaly flag for outlier articles; minimum 10 articles before showing trends
 - [ ] **Add About section** - "Facts over noise" copy, Patreon link, GitHub Issues link, credits (v2.1, KC Bowlan + Claude Opus 4.5)
 

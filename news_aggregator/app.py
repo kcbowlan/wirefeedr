@@ -37,7 +37,7 @@ import window_mgmt
 import animations
 import ticker
 import highlighting
-from dialogs import AddFeedDialog, ManageFeedsDialog, FilterKeywordsDialog
+from dialogs import AddFeedDialog, ManageFeedsDialog, FilterKeywordsDialog, CredibilityDetailDialog
 import mbfc
 
 
@@ -349,7 +349,10 @@ class NewsAggregatorApp:
             self.bias_label.configure(text=bias or "Unknown", fg=DARK_THEME["fg"],
                                        bg=DARK_THEME["bg_tertiary"])
 
-        factual = article.get("factual", "")
+        mbfc_source = mbfc.lookup_source(article.get("link", ""))
+        factual = mbfc.map_reporting_to_wirefeedr(
+            mbfc_source.get("reporting", "")) if mbfc_source else ""
+        factual = factual or article.get("factual", "")
         if factual and factual in FACTUAL_COLORS:
             self.factual_label.configure(text=factual, fg=FACTUAL_COLORS[factual],
                                           bg=DARK_THEME["bg_tertiary"])
@@ -693,16 +696,23 @@ class NewsAggregatorApp:
                         mbfc_source = mbfc.lookup_source(article.get("link", ""))
                         if mbfc_source:
                             article["mbfc"] = mbfc_source
-                        # Apply noise scoring
-                        article["noise_score"] = self.filter_engine.calculate_objectivity_score(
+                        # Apply noise scoring (WRFDR-only, before blend)
+                        art_score = self.filter_engine.calculate_objectivity_score(
                             title=article.get("title", ""),
                             link=article.get("link", ""),
                             summary=article.get("summary", ""),
                             factual_rating=article.get("factual", "")
                         )
+                        # Compute publisher credibility fields
+                        pub_score = mbfc.publisher_score(mbfc_source)
+                        domain = mbfc.normalize_domain(article.get("link", ""))
                         # Blend with MBFC publisher reputation (40/60)
-                        article["noise_score"] = mbfc.composite_score(
-                            article["noise_score"], article.get("mbfc"))
+                        article["noise_score"] = mbfc.composite_score(art_score, mbfc_source)
+                        # Extract raw MBFC strings for logging
+                        m_bias = mbfc_source.get("bias") if mbfc_source else None
+                        m_reporting = mbfc_source.get("reporting") if mbfc_source else None
+                        m_credibility = mbfc_source.get("credibility") if mbfc_source else None
+                        m_flags = ",".join(mbfc_source.get("questionable", [])) if mbfc_source and mbfc_source.get("questionable") else None
                         if self.storage.add_article(
                             feed_id=article["feed_id"],
                             title=article["title"],
@@ -710,7 +720,14 @@ class NewsAggregatorApp:
                             summary=article.get("summary", ""),
                             published=article.get("published"),
                             author=article.get("author", ""),
-                            noise_score=article.get("noise_score", 0)
+                            noise_score=article.get("noise_score", 0),
+                            publisher_domain=domain or None,
+                            article_score=art_score,
+                            publisher_score=pub_score,
+                            mbfc_bias=m_bias,
+                            mbfc_reporting=m_reporting,
+                            mbfc_credibility=m_credibility,
+                            mbfc_flags=m_flags,
                         ):
                             new_count += 1
                     results.append((feed["name"], new_count, len(fetched)))
@@ -807,15 +824,23 @@ class NewsAggregatorApp:
                     mbfc_source = mbfc.lookup_source(article.get("link", ""))
                     if mbfc_source:
                         article["mbfc"] = mbfc_source
-                    article["noise_score"] = self.filter_engine.calculate_objectivity_score(
+                    # Apply noise scoring (WRFDR-only, before blend)
+                    art_score = self.filter_engine.calculate_objectivity_score(
                         title=article.get("title", ""),
                         link=article.get("link", ""),
                         summary=article.get("summary", ""),
                         factual_rating=article.get("factual", "")
                     )
+                    # Compute publisher credibility fields
+                    pub_score = mbfc.publisher_score(mbfc_source)
+                    domain = mbfc.normalize_domain(article.get("link", ""))
                     # Blend with MBFC publisher reputation (40/60)
-                    article["noise_score"] = mbfc.composite_score(
-                        article["noise_score"], article.get("mbfc"))
+                    article["noise_score"] = mbfc.composite_score(art_score, mbfc_source)
+                    # Extract raw MBFC strings for logging
+                    m_bias = mbfc_source.get("bias") if mbfc_source else None
+                    m_reporting = mbfc_source.get("reporting") if mbfc_source else None
+                    m_credibility = mbfc_source.get("credibility") if mbfc_source else None
+                    m_flags = ",".join(mbfc_source.get("questionable", [])) if mbfc_source and mbfc_source.get("questionable") else None
                     if self.storage.add_article(
                         feed_id=article["feed_id"],
                         title=article["title"],
@@ -823,7 +848,14 @@ class NewsAggregatorApp:
                         summary=article.get("summary", ""),
                         published=article.get("published"),
                         author=article.get("author", ""),
-                        noise_score=article.get("noise_score", 0)
+                        noise_score=article.get("noise_score", 0),
+                        publisher_domain=domain or None,
+                        article_score=art_score,
+                        publisher_score=pub_score,
+                        mbfc_bias=m_bias,
+                        mbfc_reporting=m_reporting,
+                        mbfc_credibility=m_credibility,
+                        mbfc_flags=m_flags,
                     ):
                         new_count += 1
 
@@ -1338,12 +1370,14 @@ class NewsAggregatorApp:
             return "break"
 
     def _on_score_click(self, article_id: int):
-        """Show score breakdown in status bar when score cell is clicked."""
+        """Show score breakdown in status bar and open detail dialog."""
         article = self.storage.get_article(article_id)
         if not article:
             return
         self._score_click_article_id = article_id
         self._show_score_status(article)
+        mbfc_source = mbfc.lookup_source(article.get("link", ""))
+        CredibilityDetailDialog(self.root, article, mbfc_source)
 
     def _show_score_status(self, article: dict):
         """Display score breakdown in status bar for an article."""

@@ -762,9 +762,15 @@ All three errors were swallowed by `except Exception` — status bar reported "F
 - [x] **Feed favicons** - 16x16 icons next to feed names
 - [x] **Author search** - "Search Author" dropdown (Google, LinkedIn, Wikipedia, Twitter)
 - [x] ~~OPML import/export~~ - Out of scope (convenience, not quality filtering)
+- [x] **Empty preview area state** - Matrix rain with "SELECT ARTICLE TO VIEW" placeholder
+- [x] **Boot screen typewriter effect** - Boot text types in character-by-character
+- [x] **Easter eggs** - Konami code triggers glitchy "ACCESS DENIED" terminal overlay
 
-### SIGNAL — Source Integrity, Grading, Noise Abatement & Legitimacy
-Tasks that directly advance the core mission: separating factual news from noise.
+---
+
+## Priority 1: SIGNAL — Source Integrity, Grading, Noise Abatement & Legitimacy
+
+> All SIGNAL tasks take precedence over Secondary items. SIGNAL directly advances the core mission: separating factual news from noise.
 
 **Credibility Scoring Feature (from spec):**
 - [ ] **Pull and examine MBFC data** - Get structured ratings from `drmikecrowe/mbfcext` repo (~9,000 sources, ~1-2MB)
@@ -778,27 +784,28 @@ Tasks that directly advance the core mission: separating factual news from noise
 - [ ] **Implement rolling averages and trends** - 90-day publisher rolling average, per-author average, anomaly flag for outlier articles; minimum 10 articles before showing trends
 - [ ] **Add About section** - "Facts over noise" copy, Patreon link, GitHub Issues link, credits (v2.1, KC Bowlan + Claude Opus 4.5)
 
-**Other SIGNAL tasks:**
+**SIGNAL Infrastructure:**
+- [ ] **Async feed fetching** - Currently sequential in background thread; faster fetching means fresher data from more sources
+- [ ] **Evaluate new feeds via scoring system** - Use existing bias/factual/noise scoring to identify and add high-quality sources
+- [ ] **Feed health monitoring dashboard** - Track feed reliability, uptime, and quality over time
+- [ ] **Notification for new articles** - Ensures important stories aren't missed
+
+**SIGNAL Research & Expansion:**
 - [ ] **Author credibility in article scores** - Tie author reputation into scoring more reliably; prefer offline solutions; investigate journalist credibility/bias databases
 - [ ] **Additional bias/credibility tracking sources** - Find sources beyond MBFC that track publisher bias and credibility; ping periodically and update; visualize rating shifts over time as line graphs
 - [ ] **Ground News methodology** - Research their approach (bias ratings, coverage analysis, blind spot detection) and evaluate what fits without compromising project goals
-- [ ] **Evaluate new feeds via scoring system** - Use existing bias/factual/noise scoring to identify and add high-quality sources
-- [ ] **Async feed fetching** - Currently sequential in background thread; faster fetching means fresher data from more sources
-- [ ] **Notification for new articles** - Ensures important stories aren't missed
 
-### Secondary
-Polish, aesthetics, and convenience features.
+**SIGNAL-Adjacent** (supports SIGNAL goals indirectly):
+- [ ] **Feed folders/grouping** - Organize feeds for scaling to more sources
+- [ ] **Article tagging/bookmarking** - Tagged articles provide ground truth for scoring refinement
+
+### Priority 2: Secondary
+Polish, aesthetics, and convenience features. Only work on these when SIGNAL tasks are blocked or need a break.
 
 - [ ] **Subtler refresh animation** - Current animation on refresh is too aggressive
-- [x] **Empty preview area state** - Matrix rain with "SELECT ARTICLE TO VIEW" placeholder
-- [x] **Boot screen typewriter effect** - Boot text should type in character-by-character
-- [ ] **Feed folders/grouping**
-- [ ] **Article tagging/bookmarking**
-- [ ] **Database backup/restore**
 - [ ] **Non-standard UI exploration** - Explore UI paradigms outside typical Windows conventions
-- [ ] **Easter eggs** - Hidden interactions, secret key combos, fun surprises fitting the cyberpunk/hacker aesthetic
+- [ ] **Database backup/restore**
 - [ ] Offline reading mode (cache full article text)
-- [ ] Feed health monitoring dashboard
 - [ ] Readability mode (strip ads, extract content)
 - [ ] Integration with read-it-later services (Pocket, Instapaper)
 

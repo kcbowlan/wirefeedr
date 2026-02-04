@@ -810,6 +810,21 @@ First SIGNAL infrastructure step: pull publisher credibility data from Media Bia
 - Interactive dots: hover shows tooltip with article title, composite score, WRFDR/MBFC breakdown and blend formula; click opens article in browser
 - New `recent_articles` field in `get_publisher_trend_data()` returns title, link, and score components for each sparkline point
 
+**Credibility dialog visual bars (`dialogs.py`, `config.py`):**
+- Gradient score bars (red-to-green) on composite score, WRFDR article score, and MBFC publisher score
+- Bias spectrum bar (blue-green-orange) with white arrow markers matching personal feed bias style
+- Factual reporting level bar (Mixed → Mostly Factual → High → Very High)
+- Credibility level bar (Low → Medium → High)
+- All bars centered in the MBFC section
+
+**Grading scale fix (`config.py`):**
+- Changed from custom thresholds to standard academic grading: 90-100 A, 80-89 B, 70-79 C, 60-69 D, 0-59 F
+
+**Bug fix (`app.py`):**
+- Konami code now works when articles tree has focus; arrow key handlers forward events to `konami_check`
+
+**Version bump:** v2.4 across all UI surfaces (boot sequence, feeds panel, About dialog, project log)
+
 ---
 
 ## Potential Future Enhancements

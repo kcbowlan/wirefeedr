@@ -255,10 +255,10 @@ CLICKBAIT_NUMBER_PATTERNS = [
 # Article grades (based on objectivity score - higher = better)
 # Format: (max_score, grade_letter, label, color)
 ARTICLE_GRADES = [
-    (24, "F", "Slop", "#e74c3c"),         # Red
-    (44, "D", "Noise", "#e67e22"),        # Orange
-    (64, "C", "Weak", "#f1c40f"),         # Yellow
-    (84, "B", "Passable", "#2ecc71"),     # Green
+    (59, "F", "Slop", "#e74c3c"),         # Red
+    (69, "D", "Noise", "#e67e22"),        # Orange
+    (79, "C", "Weak", "#f1c40f"),         # Yellow
+    (89, "B", "Passable", "#2ecc71"),     # Green
     (100, "A", "Solid", "#27ae60"),       # Dark green
 ]
 

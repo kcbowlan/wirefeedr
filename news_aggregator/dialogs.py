@@ -293,7 +293,7 @@ class CredibilityDetailDialog:
 
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Credibility Analysis")
-        self.dialog.geometry("480x680")
+        self.dialog.geometry("480x780")
         self.dialog.resizable(False, False)
         self.dialog.transient(parent)
         self.dialog.grab_set()
@@ -310,6 +310,20 @@ class CredibilityDetailDialog:
         self._build_close_button()
 
         self.dialog.wait_window()
+
+    @staticmethod
+    def _draw_score_bar(parent, score, width=200, height=14):
+        """Draw a horizontal gradient bar filled proportionally to score 0-100."""
+        canvas = tk.Canvas(parent, width=width, height=height,
+                           highlightthickness=0, bg=DARK_THEME["bg_secondary"])
+        fill_w = max(1, int(width * score / 100))
+        for i in range(fill_w):
+            t = i / max(fill_w - 1, 1)
+            r = int(231 - (231 - 39) * t)
+            g = int(76 + (174 - 76) * t)
+            b = int(60 + (96 - 60) * t)
+            canvas.create_line(i, 0, i, height, fill=f"#{r:02x}{g:02x}{b:02x}")
+        return canvas
 
     def _build_header(self):
         """Gradient header banner."""
@@ -336,6 +350,9 @@ class CredibilityDetailDialog:
         score_text = f"{composite}  {label.upper()} ({letter})"
         tk.Label(frame, text=score_text, font=("Consolas", 22, "bold"),
                  fg=color, bg=DARK_THEME["bg"]).pack()
+
+        bar = self._draw_score_bar(frame, composite, width=340, height=10)
+        bar.pack(pady=(4, 0))
 
         title = self.article.get("title", "")
         if len(title) > 70:
@@ -393,11 +410,56 @@ class CredibilityDetailDialog:
                  font=("Consolas", 10), fg=clr,
                  bg=DARK_THEME["bg"]).pack(anchor=tk.W)
 
+        bar = self._draw_score_bar(detail, article_score, width=200, height=10)
+        bar.pack(anchor=tk.W, pady=(2, 0))
+
         tk.Label(detail,
                  text="Signals: opinion, sensationalism, clickbait,\n"
                       "punctuation, caps, summary analysis",
                  font=("Consolas", 9), fg=DARK_THEME["fg_secondary"],
                  bg=DARK_THEME["bg"], justify=tk.LEFT).pack(anchor=tk.W, pady=(2, 0))
+
+    @staticmethod
+    def _draw_bias_bar(parent, bias_label, width=200, height=12):
+        """Draw a blue-green-orange bias spectrum bar with position marker."""
+        from constants import BIAS_POSITIONS
+        pos = BIAS_POSITIONS.get(bias_label, 0.5)
+        canvas = tk.Canvas(parent, width=width, height=height,
+                           highlightthickness=0, bg=DARK_THEME["bg_secondary"])
+        for x in range(width):
+            t = x / max(width - 1, 1)
+            if t < 0.5:
+                lt = t * 2.0
+                r, g, b = 0x44, int(0x88 + (0xff - 0x88) * lt), int(0xff + (0x88 - 0xff) * lt)
+            else:
+                lt = (t - 0.5) * 2.0
+                r, g, b = int(0x44 + (0xff - 0x44) * lt), int(0xff + (0x88 - 0xff) * lt), int(0x88 + (0x44 - 0x88) * lt)
+            canvas.create_line(x, 0, x, height, fill=f"#{r:02x}{g:02x}{b:02x}")
+        # Position marker
+        mx = int(pos * (width - 1))
+        canvas.create_polygon(mx - 4, 0, mx + 4, 0, mx, 5,
+                              fill="#ffffff", outline="")
+        canvas.create_polygon(mx - 4, height, mx + 4, height, mx, height - 5,
+                              fill="#ffffff", outline="")
+        return canvas
+
+    @staticmethod
+    def _draw_level_bar(parent, level, levels, width=200, height=10):
+        """Draw a red-to-green bar filled proportionally to level position."""
+        if level in levels:
+            fraction = levels.index(level) / max(len(levels) - 1, 1)
+        else:
+            fraction = 0
+        canvas = tk.Canvas(parent, width=width, height=height,
+                           highlightthickness=0, bg=DARK_THEME["bg_secondary"])
+        fill_w = max(1, int(width * fraction))
+        for i in range(fill_w):
+            t = i / max(fill_w - 1, 1)
+            r = int(231 - (231 - 39) * t)
+            g = int(76 + (174 - 76) * t)
+            b = int(60 + (96 - 60) * t)
+            canvas.create_line(i, 0, i, height, fill=f"#{r:02x}{g:02x}{b:02x}")
+        return canvas
 
     def _build_mbfc_section(self):
         """MBFC publisher data section."""
@@ -419,41 +481,8 @@ class CredibilityDetailDialog:
             return
 
         src = self.mbfc_source
-        rows = []
 
-        # Publisher name
-        name = src.get("name", "Unknown")
-        rows.append(("Publisher:", name, DARK_THEME["fg"]))
-
-        # Bias
-        bias_raw = mbfc.map_bias_to_wirefeedr(src.get("bias", ""))
-        bias_color = BIAS_COLORS.get(bias_raw, DARK_THEME["fg"])
-        rows.append(("Bias:", bias_raw or "Unknown", bias_color))
-
-        # Factual Reporting
-        reporting_raw = mbfc.map_reporting_to_wirefeedr(src.get("reporting", ""))
-        reporting_color = FACTUAL_COLORS.get(reporting_raw, DARK_THEME["fg"])
-        rows.append(("Factual Rep.:", reporting_raw or "Unknown", reporting_color))
-
-        # Credibility
-        cred = (src.get("credibility") or "").replace("-", " ").title()
-        cred_color = "#27ae60" if "high" in cred.lower() else (
-            DARK_THEME["fg"] if "medium" in cred.lower() else "#e74c3c")
-        rows.append(("Credibility:", cred or "Unknown", cred_color))
-
-        # Questionable flags
-        flags = src.get("questionable") or []
-        flag_text = ", ".join(f.replace("-", " ").title() for f in flags) if flags else "None"
-        flag_color = "#e74c3c" if flags else "#27ae60"
-        rows.append(("Flags:", flag_text, flag_color))
-
-        # Publisher score
-        pub_score = mbfc.publisher_score(src)
-        if pub_score is not None:
-            _, plbl, pclr = get_grade(pub_score)
-            rows.append(("Pub Score:", f"{pub_score}  ({plbl})", pclr))
-
-        for label_text, value, color in rows:
+        def _add_row(label_text, value, color):
             row = tk.Frame(detail, bg=DARK_THEME["bg"])
             row.pack(fill=tk.X, pady=1)
             tk.Label(row, text=label_text, font=("Consolas", 10),
@@ -462,6 +491,53 @@ class CredibilityDetailDialog:
             tk.Label(row, text=value, font=("Consolas", 10),
                      fg=color, bg=DARK_THEME["bg"],
                      anchor=tk.W).pack(side=tk.LEFT)
+
+        # Publisher name (text only)
+        name = src.get("name", "Unknown")
+        _add_row("Publisher:", name, DARK_THEME["fg"])
+
+        # Bias + spectrum bar
+        bias_raw = mbfc.map_bias_to_wirefeedr(src.get("bias", ""))
+        bias_color = BIAS_COLORS.get(bias_raw, DARK_THEME["fg"])
+        _add_row("Bias:", bias_raw or "Unknown", bias_color)
+        if bias_raw:
+            bar = self._draw_bias_bar(detail, bias_raw, width=200, height=12)
+            bar.pack(pady=(2, 2))
+
+        # Factual Reporting + level bar
+        reporting_raw = mbfc.map_reporting_to_wirefeedr(src.get("reporting", ""))
+        reporting_color = FACTUAL_COLORS.get(reporting_raw, DARK_THEME["fg"])
+        _add_row("Factual Rep.:", reporting_raw or "Unknown", reporting_color)
+        factual_levels = ["Mixed", "Mostly Factual", "High", "Very High"]
+        if reporting_raw:
+            bar = self._draw_level_bar(detail, reporting_raw, factual_levels,
+                                       width=200, height=10)
+            bar.pack(pady=(2, 2))
+
+        # Credibility + level bar
+        cred = (src.get("credibility") or "").replace("-", " ").title()
+        cred_color = "#27ae60" if "high" in cred.lower() else (
+            DARK_THEME["fg"] if "medium" in cred.lower() else "#e74c3c")
+        _add_row("Credibility:", cred or "Unknown", cred_color)
+        cred_levels = ["Low Credibility", "Medium Credibility", "High Credibility"]
+        if cred:
+            bar = self._draw_level_bar(detail, cred, cred_levels,
+                                       width=200, height=10)
+            bar.pack(pady=(2, 2))
+
+        # Questionable flags
+        flags = src.get("questionable") or []
+        flag_text = ", ".join(f.replace("-", " ").title() for f in flags) if flags else "None"
+        flag_color = "#e74c3c" if flags else "#27ae60"
+        _add_row("Flags:", flag_text, flag_color)
+
+        # Publisher score + score bar
+        pub_score = mbfc.publisher_score(src)
+        if pub_score is not None:
+            _, plbl, pclr = get_grade(pub_score)
+            _add_row("Pub Score:", f"{pub_score}  ({plbl})", pclr)
+            bar = self._draw_score_bar(detail, pub_score, width=200, height=10)
+            bar.pack(pady=(2, 2))
 
         # MBFC link
         url = src.get("url", "")

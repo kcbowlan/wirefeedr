@@ -1297,6 +1297,7 @@ class NewsAggregatorApp:
 
     def _on_key_up(self, event):
         """Handle Up arrow key - select previous article."""
+        animations.konami_check(self, event)
         selection = self.articles_tree.selection()
         if not selection:
             # Select last item if nothing selected
@@ -1315,6 +1316,7 @@ class NewsAggregatorApp:
 
     def _on_key_down(self, event):
         """Handle Down arrow key - select next article."""
+        animations.konami_check(self, event)
         selection = self.articles_tree.selection()
         if not selection:
             # Select first item if nothing selected
